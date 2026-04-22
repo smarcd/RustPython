@@ -54,3 +54,7 @@ Downstream verification helpers are local-only and are not part of the RustPytho
 ### Unicode / lifecycle / finalization
 - unicode and encoding APIs in `crates/capi/src/unicodeobject.rs`
 - lifecycle and finalization semantics in `crates/capi/src/pylifecycle.rs`
+
+### Package matrix expansion
+- add the next non-`numpy` pristine PyO3 package lane when local artifacts can be recreated cleanly
+- expand the matrix toward additional real-world PyO3 packages as downstream proof points require it
