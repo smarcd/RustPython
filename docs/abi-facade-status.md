@@ -6,9 +6,13 @@
 - commit: `c0357af501688c9aa239b7ee181f964d593a7088`
 - upstream base: current `RustPython/main` as of the forward-port checkpoint
 - status: maintained branch refreshed and re-verified
+- interpretation: the maintained branch is already viable on current `main`; the remaining work is ABI completeness, not basic loader viability
 
 ## Verified downstream packages
 
+- verification provenance: maintained downstream verifier rerun on `2026-04-22`
+  - command: `RUSTPYTHON_ABI_ROOT=/Users/sunny/work/codepod/rustpython-abi-facade BLAKE3_SITE=/tmp/blake3-wheel-site-abi3 JITER_SITE=/private/tmp/jiter-abi-venv/lib/python3.14/site-packages RPDS_SITE=/private/tmp/rpds-abi-venv/lib/python3.14/site-packages /Users/sunny/work/codepod/pyo3-rustpython/.local/abi-facade/verify_pyo3_downstream.sh`
+  - package counts below are from that run against the maintained worktree at `c0357af501688c9aa239b7ee181f964d593a7088`
 - `rpds`: package-owned Python tests green
   - `test_hash_trie_map.py`: `ran=59 skipped=0 failed=0`
   - `test_hash_trie_set.py`: `ran=21 skipped=0 failed=0`
@@ -50,7 +54,3 @@ Downstream verification helpers are local-only and are not part of the RustPytho
 ### Unicode / lifecycle / finalization
 - unicode and encoding APIs in `crates/capi/src/unicodeobject.rs`
 - lifecycle and finalization semantics in `crates/capi/src/pylifecycle.rs`
-
-### Package matrix expansion
-- add the next non-`numpy` pristine PyO3 package lane when local artifacts can be recreated cleanly
-- expand the matrix toward `pydantic-core`, `orjson`, or `msgspec` as needed
