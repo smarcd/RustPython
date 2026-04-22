@@ -1,13 +1,13 @@
 # ABI Facade Status
 
-## Maintained latest-main baseline
+## Maintained ABI facade baseline
 
 - branch: `abi-facade-pyo3-maintained`
-- commit: `632a8c037ddf10ff2e15de4e3dcfd08d4062fba2`
+- commit: `c0357af501688c9aa239b7ee181f964d593a7088`
 - upstream base: current `RustPython/main` as of the forward-port checkpoint
-- status: latest-main adaptation complete and re-verified
+- status: maintained branch refreshed and re-verified
 
-## Verified unchanged downstream packages
+## Verified downstream packages
 
 - `rpds`: package-owned Python tests green
   - `test_hash_trie_map.py`: `ran=59 skipped=0 failed=0`
@@ -28,22 +28,29 @@
 
 Downstream verification helpers are local-only and are not part of the RustPython PR.
 
-## Current interpretation
+## Latest Landed Slot Families
 
-- the maintained branch now compiles and runs on latest `main`
-- the current ABI facade is good enough for multiple unchanged real PyO3 packages
-- the remaining work is broader ABI completeness, not basic loader viability
+- heap type slot coverage in `crates/capi/src/object.rs`
+- unsupported-slot panic avoidance in `crates/capi/src/object.rs`
+- arithmetic slot coverage in `crates/capi/src/object.rs`
+- call and descriptor slot coverage in `crates/capi/src/object.rs`
+- sequence and mapping mutation slots in `crates/capi/src/object.rs`
+- sequence operator slots in `crates/capi/src/object.rs`
 
-## Ranked ABI backlog
+## Remaining Backlog
 
-### Tier 1: broad pristine PyO3 compatibility
-- `PyType_FromSpec` slot coverage in `crates/capi/src/object.rs`
-- `PyType_GetSlot` coverage in `crates/capi/src/object.rs`
+### Heap type / slot completeness
+- finish the remaining `PyType_FromSpec` and `PyType_GetSlot` mappings in `crates/capi/src/object.rs`
+- close out any unhandled heap-type finalization edge cases as they are proven by downstream packages
+
+### Buffer / array / `numpy`
 - richer buffer support in `crates/capi/src/pybuffer.rs`
+- keep the `numpy`-dependent gaps explicit until a real package lane proves the next required surface
 
-### Tier 2: common ecosystem compatibility
-- unicode/encoding APIs in `crates/capi/src/unicodeobject.rs`
-- lifecycle/finalization semantics in `crates/capi/src/pylifecycle.rs`
+### Unicode / lifecycle / finalization
+- unicode and encoding APIs in `crates/capi/src/unicodeobject.rs`
+- lifecycle and finalization semantics in `crates/capi/src/pylifecycle.rs`
 
-### Tier 3: architectural follow-up
-- exported builtin/type handle model in `crates/capi/src/handles.rs`
+### Package matrix expansion
+- add the next non-`numpy` pristine PyO3 package lane when local artifacts can be recreated cleanly
+- expand the matrix toward `pydantic-core`, `orjson`, or `msgspec` as needed
