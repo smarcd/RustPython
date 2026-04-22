@@ -177,9 +177,7 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             SlotAccessor::NbAnd => vtable.and_then(|vtable| vtable.and_func.map(|f| f as *mut c_void)),
             SlotAccessor::NbOr => vtable.and_then(|vtable| vtable.or_func.map(|f| f as *mut c_void)),
             SlotAccessor::NbXor => vtable.and_then(|vtable| vtable.xor_func.map(|f| f as *mut c_void)),
-            _ => {
-                todo!("Slot {slot_accessor:?} for {ty:?} is not yet implemented in PyType_GetSlot")
-            }
+            _ => None,
         }
     })
 }
@@ -771,7 +769,11 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     };
                     slots.doc = Some(doc);
                 }
-                _ => todo!("Slot {accessor:?} is not yet supported in PyType_FromSpec"),
+                _ => {
+                    return Err(vm.new_system_error(format!(
+                        "slot {accessor:?} is not yet supported in PyType_FromSpec"
+                    )));
+                }
             }
 
             slot_ptr = unsafe { slot_ptr.add(1) };
@@ -1009,7 +1011,7 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         if !has_explicit_setattro {
             class.slots.setattro.store(base.slots.setattro.load());
         }
-        class
+        Ok(class)
     })
 }
 
