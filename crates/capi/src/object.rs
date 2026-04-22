@@ -156,6 +156,13 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             SlotAccessor::NbIndex => {
                 vtable.and_then(|vtable| vtable.index_func.map(|f| f as *mut c_void))
             }
+            SlotAccessor::TpCall => vtable.and_then(|vtable| vtable.call_func.map(|f| f as *mut c_void)),
+            SlotAccessor::TpDescrGet => {
+                vtable.and_then(|vtable| vtable.descr_get_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::TpDescrSet => {
+                vtable.and_then(|vtable| vtable.descr_set_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::TpInit => vtable.and_then(|vtable| vtable.init_func.map(|f| f as *mut c_void)),
             SlotAccessor::TpStr => vtable.and_then(|vtable| vtable.str_func.map(|f| f as *mut c_void)),
             SlotAccessor::TpRepr => vtable.and_then(|vtable| vtable.repr_func.map(|f| f as *mut c_void)),
@@ -258,6 +265,9 @@ pub struct PyGetSetDef {
 struct TypeVTable {
     new_func: Option<newfunc>,
     init_func: Option<initproc>,
+    call_func: Option<ternaryfunc>,
+    descr_get_func: Option<descrgetfunc>,
+    descr_set_func: Option<descrsetfunc>,
     add_func: Option<binaryfunc>,
     multiply_func: Option<binaryfunc>,
     bool_func: Option<inquiry>,
@@ -291,9 +301,17 @@ type initproc = unsafe extern "C" fn(
     kwargs: *mut PyObject,
 ) -> c_int;
 
+type ternaryfunc =
+    unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject, kwargs: *mut PyObject)
+        -> *mut PyObject;
 type unaryfunc = unsafe extern "C" fn(slf: *mut PyObject) -> *mut PyObject;
 type objobjproc = unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject) -> c_int;
 type binaryfunc = unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject) -> *mut PyObject;
+type descrgetfunc =
+    unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject, cls: *mut PyObject)
+        -> *mut PyObject;
+type descrsetfunc =
+    unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject, value: *mut PyObject) -> c_int;
 type inquiry = unsafe extern "C" fn(slf: *mut PyObject) -> c_int;
 type lenfunc = unsafe extern "C" fn(slf: *mut PyObject) -> isize;
 type richcmpfunc =
@@ -351,6 +369,32 @@ fn native_tp_init(obj: PyObjectRef, args: rustpython_vm::function::FuncArgs, vm:
             ))
         }))
     }
+}
+
+fn native_tp_call(obj: &PyObject, args: rustpython_vm::function::FuncArgs, vm: &VirtualMachine) -> PyResult {
+    let call_func = obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.call_func)
+        .expect("native_tp_call called without a registered call slot");
+    let kwargs = vm.ctx.new_dict();
+    for (name, value) in &args.kwargs {
+        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value.clone(), vm)?;
+    }
+    let args = vm.ctx.new_tuple(args.args);
+    let slf_ptr = unsafe { exported_object_handle(obj.as_raw().cast_mut()) };
+    let result = unsafe {
+        call_func(
+            slf_ptr,
+            args.as_object().as_raw().cast_mut(),
+            kwargs.as_object().as_raw().cast_mut(),
+        )
+    };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native tp_call returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
 fn native_nb_float(
@@ -702,6 +746,59 @@ fn native_tp_richcompare(
     Ok(Either::A(resolved))
 }
 
+fn native_tp_descr_get(
+    descr: PyObjectRef,
+    obj: Option<PyObjectRef>,
+    cls: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let descr_get_func = descr
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.descr_get_func)
+        .expect("native_tp_descr_get called without a registered descr_get slot");
+    let descr_ptr = unsafe { exported_object_handle(descr.as_object().as_raw().cast_mut()) };
+    let obj_ptr = obj
+        .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
+        .unwrap_or(core::ptr::null_mut());
+    let cls_ptr = cls
+        .map(|cls| unsafe { exported_object_handle(cls.as_object().as_raw().cast_mut()) })
+        .unwrap_or(core::ptr::null_mut());
+    let result = unsafe { descr_get_func(descr_ptr, obj_ptr, cls_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native tp_descr_get returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_tp_descr_set(
+    descr: &PyObject,
+    obj: PyObjectRef,
+    value: PySetterValue,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let descr_set_func = descr
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.descr_set_func)
+        .expect("native_tp_descr_set called without a registered descr_set slot");
+    let descr_ptr = unsafe { exported_object_handle(descr.as_raw().cast_mut()) };
+    let obj_ptr = unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) };
+    let value_ptr = match value {
+        PySetterValue::Assign(value) => unsafe { exported_object_handle(value.as_raw().cast_mut()) },
+        PySetterValue::Delete => core::ptr::null_mut(),
+    };
+    let rc = unsafe { descr_set_func(descr_ptr, obj_ptr, value_ptr) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(vm
+            .take_raised_exception()
+            .expect("native tp_descr_set returned error, but there was no exception set"))
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
     with_vm(|vm| {
@@ -771,6 +868,10 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     vtable.init_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.init.store(Some(native_tp_init));
                 }
+                SlotAccessor::TpCall => {
+                    vtable.call_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.call.store(Some(native_tp_call));
+                }
                 SlotAccessor::NbAdd => {
                     vtable.add_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.add.store(Some(native_nb_add));
@@ -808,6 +909,14 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     has_explicit_setattro = true;
                     slots.setattro
                         .store(Some(unsafe { core::mem::transmute(slot.pfunc) }));
+                }
+                SlotAccessor::TpDescrGet => {
+                    vtable.descr_get_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.descr_get.store(Some(native_tp_descr_get));
+                }
+                SlotAccessor::TpDescrSet => {
+                    vtable.descr_set_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.descr_set.store(Some(native_tp_descr_set));
                 }
                 SlotAccessor::SqContains => {
                     vtable.contains_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -967,6 +1076,27 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
             .is_some()
         {
             class.slots.as_number.add.store(Some(native_nb_add));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.call_func)
+            .is_some()
+        {
+            class.slots.call.store(Some(native_tp_call));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.descr_get_func)
+            .is_some()
+        {
+            class.slots.descr_get.store(Some(native_tp_descr_get));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.descr_set_func)
+            .is_some()
+        {
+            class.slots.descr_set.store(Some(native_tp_descr_set));
         }
         if class
             .get_type_data::<TypeVTable>()
