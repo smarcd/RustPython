@@ -11,7 +11,7 @@ use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::class::add_operators;
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::convert::ToPyObject;
-use rustpython_vm::function::{Either, FsPath, PyComparisonValue};
+use rustpython_vm::function::{Either, FsPath, PyComparisonValue, PySetterValue};
 use rustpython_vm::protocol::{PyIterReturn, PyMapping, PySequence};
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
 use rustpython_vm::{AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine};
@@ -137,9 +137,10 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             .try_into()
             .expect("invalid slot number for SlotAccessor");
 
+        let vtable = ty.get_type_data::<TypeVTable>();
         match slot_accessor {
             SlotAccessor::TpNew => {
-                if let Some(vtable) = ty.get_type_data::<TypeVTable>() {
+                if let Some(vtable) = vtable {
                     vtable.new_func.map(|newfunc| newfunc as *mut c_void)
                 } else if ty.is(_vm.ctx.types.object_type) {
                     Some(PyType_GenericNew as *mut c_void)
@@ -147,6 +148,35 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
                     None
                 }
             }
+            SlotAccessor::TpInit => vtable.and_then(|vtable| vtable.init_func.map(|f| f as *mut c_void)),
+            SlotAccessor::TpStr => vtable.and_then(|vtable| vtable.str_func.map(|f| f as *mut c_void)),
+            SlotAccessor::TpRepr => vtable.and_then(|vtable| vtable.repr_func.map(|f| f as *mut c_void)),
+            SlotAccessor::SqLength => {
+                vtable.and_then(|vtable| vtable.sq_length_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::SqContains => {
+                vtable.and_then(|vtable| vtable.contains_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::TpIter => vtable.and_then(|vtable| vtable.iter_func.map(|f| f as *mut c_void)),
+            SlotAccessor::TpIternext => {
+                vtable.and_then(|vtable| vtable.iternext_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::MpSubscript => {
+                vtable.and_then(|vtable| vtable.mp_subscript_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::MpLength => {
+                vtable.and_then(|vtable| vtable.mp_length_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::TpRichcompare => {
+                vtable.and_then(|vtable| vtable.richcompare_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::TpHash => vtable.and_then(|vtable| vtable.hash_func.map(|f| f as *mut c_void)),
+            SlotAccessor::NbSubtract => {
+                vtable.and_then(|vtable| vtable.subtract_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbAnd => vtable.and_then(|vtable| vtable.and_func.map(|f| f as *mut c_void)),
+            SlotAccessor::NbOr => vtable.and_then(|vtable| vtable.or_func.map(|f| f as *mut c_void)),
+            SlotAccessor::NbXor => vtable.and_then(|vtable| vtable.xor_func.map(|f| f as *mut c_void)),
             _ => {
                 todo!("Slot {slot_accessor:?} for {ty:?} is not yet implemented in PyType_GetSlot")
             }
@@ -764,13 +794,47 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
             let closure = attribute.closure;
             let getter = attribute.get;
             let getset = if let Some(setter) = attribute.set {
-                todo!();
                 unsafe {
                     vm.ctx.new_getset(
                         name,
-                        &class,
-                        |obj: PyObjectRef, vm: &VirtualMachine| {},
-                        |obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine| {},
+                        class_static,
+                        move |obj: PyObjectRef, vm: &VirtualMachine| {
+                            let exported_obj =
+                                exported_object_handle(obj.as_raw().cast_mut());
+                            let result = getter(exported_obj, closure);
+                            let result = NonNull::new(result).ok_or_else(|| {
+                                vm.take_raised_exception().unwrap_or_else(|| {
+                                    vm.new_system_error(
+                                        "native getset returned NULL without raising".to_owned(),
+                                    )
+                                })
+                            })?;
+                            let resolved: PyResult<PyObjectRef> =
+                                Ok(owned_from_exported_new_ref(result.as_ptr()));
+                            resolved
+                        },
+                        move |obj: PyObjectRef,
+                              value: PySetterValue<PyObjectRef>,
+                              vm: &VirtualMachine| {
+                            let exported_obj =
+                                exported_object_handle(obj.as_raw().cast_mut());
+                            let exported_value = match value {
+                                PySetterValue::Assign(value) => {
+                                    exported_object_handle(value.as_raw().cast_mut())
+                                }
+                                PySetterValue::Delete => core::ptr::null_mut(),
+                            };
+                            let rc = setter(exported_obj, exported_value, closure);
+                            if rc == 0 {
+                                Ok(())
+                            } else {
+                                Err(vm.take_raised_exception().unwrap_or_else(|| {
+                                    vm.new_system_error(
+                                        "native getset setter failed without raising".to_owned(),
+                                    )
+                                }))
+                            }
+                        },
                     )
                 }
             } else {
