@@ -156,6 +156,9 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             SlotAccessor::NbIndex => {
                 vtable.and_then(|vtable| vtable.index_func.map(|f| f as *mut c_void))
             }
+            SlotAccessor::MpAssSubscript => {
+                vtable.and_then(|vtable| vtable.mp_ass_subscript_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::TpCall => vtable.and_then(|vtable| vtable.call_func.map(|f| f as *mut c_void)),
             SlotAccessor::TpDescrGet => {
                 vtable.and_then(|vtable| vtable.descr_get_func.map(|f| f as *mut c_void))
@@ -168,6 +171,10 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             SlotAccessor::TpRepr => vtable.and_then(|vtable| vtable.repr_func.map(|f| f as *mut c_void)),
             SlotAccessor::SqLength => {
                 vtable.and_then(|vtable| vtable.sq_length_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::SqItem => vtable.and_then(|vtable| vtable.sq_item_func.map(|f| f as *mut c_void)),
+            SlotAccessor::SqAssItem => {
+                vtable.and_then(|vtable| vtable.sq_ass_item_func.map(|f| f as *mut c_void))
             }
             SlotAccessor::SqContains => {
                 vtable.and_then(|vtable| vtable.contains_func.map(|f| f as *mut c_void))
@@ -275,10 +282,13 @@ struct TypeVTable {
     index_func: Option<unaryfunc>,
     str_func: Option<unaryfunc>,
     repr_func: Option<unaryfunc>,
+    sq_item_func: Option<ssizeargfunc>,
+    sq_ass_item_func: Option<ssizeobjargproc>,
     sq_length_func: Option<lenfunc>,
     contains_func: Option<objobjproc>,
     iter_func: Option<unaryfunc>,
     iternext_func: Option<unaryfunc>,
+    mp_ass_subscript_func: Option<objobjargproc>,
     mp_subscript_func: Option<binaryfunc>,
     mp_length_func: Option<lenfunc>,
     richcompare_func: Option<richcmpfunc>,
@@ -313,6 +323,11 @@ type descrgetfunc =
 type descrsetfunc =
     unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject, value: *mut PyObject) -> c_int;
 type inquiry = unsafe extern "C" fn(slf: *mut PyObject) -> c_int;
+type ssizeargfunc = unsafe extern "C" fn(slf: *mut PyObject, index: isize) -> *mut PyObject;
+type ssizeobjargproc =
+    unsafe extern "C" fn(slf: *mut PyObject, index: isize, value: *mut PyObject) -> c_int;
+type objobjargproc =
+    unsafe extern "C" fn(slf: *mut PyObject, key: *mut PyObject, value: *mut PyObject) -> c_int;
 type lenfunc = unsafe extern "C" fn(slf: *mut PyObject) -> isize;
 type richcmpfunc =
     unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject, op: c_int) -> *mut PyObject;
@@ -545,6 +560,49 @@ fn native_sq_contains(seq: PySequence<'_>, needle: &PyObject, vm: &VirtualMachin
     }
 }
 
+fn native_sq_item(seq: PySequence<'_>, index: isize, vm: &VirtualMachine) -> PyResult {
+    let item_func = seq
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.sq_item_func)
+        .expect("native_sq_item called without a registered item slot");
+    let slf_ptr = unsafe { exported_object_handle(seq.obj.as_raw().cast_mut()) };
+    let result = unsafe { item_func(slf_ptr, index) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native sq_item returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_sq_ass_item(
+    seq: PySequence<'_>,
+    index: isize,
+    value: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let ass_item_func = seq
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.sq_ass_item_func)
+        .expect("native_sq_ass_item called without a registered ass_item slot");
+    let slf_ptr = unsafe { exported_object_handle(seq.obj.as_raw().cast_mut()) };
+    let value_ptr = match value {
+        Some(value) => unsafe { exported_object_handle(value.as_raw().cast_mut()) },
+        None => core::ptr::null_mut(),
+    };
+    let rc = unsafe { ass_item_func(slf_ptr, index, value_ptr) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(vm
+            .take_raised_exception()
+            .expect("native sq_ass_item returned error, but there was no exception set"))
+    }
+}
+
 fn native_sq_length(seq: PySequence<'_>, vm: &VirtualMachine) -> PyResult<usize> {
     let length_func = seq
         .obj
@@ -616,6 +674,34 @@ fn native_mp_subscript(mapping: PyMapping<'_>, needle: &PyObject, vm: &VirtualMa
             .expect("native mp_subscript returned NULL, but there was no exception set")
     })?;
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_mp_ass_subscript(
+    mapping: PyMapping<'_>,
+    needle: &PyObject,
+    value: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let ass_subscript_func = mapping
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.mp_ass_subscript_func)
+        .expect("native_mp_ass_subscript called without a registered ass_subscript slot");
+    let slf_ptr = unsafe { exported_object_handle(mapping.obj.as_raw().cast_mut()) };
+    let needle_ptr = unsafe { exported_object_handle(needle.as_raw().cast_mut()) };
+    let value_ptr = match value {
+        Some(value) => unsafe { exported_object_handle(value.as_raw().cast_mut()) },
+        None => core::ptr::null_mut(),
+    };
+    let rc = unsafe { ass_subscript_func(slf_ptr, needle_ptr, value_ptr) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(vm
+            .take_raised_exception()
+            .expect("native mp_ass_subscript returned error, but there was no exception set"))
+    }
 }
 
 fn native_mp_length(mapping: PyMapping<'_>, vm: &VirtualMachine) -> PyResult<usize> {
@@ -892,6 +978,14 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     vtable.index_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.index.store(Some(native_nb_index));
                 }
+                SlotAccessor::MpAssSubscript => {
+                    vtable.mp_ass_subscript_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_mapping
+                        .ass_subscript
+                        .store(Some(native_mp_ass_subscript));
+                }
                 SlotAccessor::TpGetattro => {
                     has_explicit_getattro = true;
                     slots.getattro
@@ -925,6 +1019,14 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 SlotAccessor::SqLength => {
                     vtable.sq_length_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_sequence.length.store(Some(native_sq_length));
+                }
+                SlotAccessor::SqItem => {
+                    vtable.sq_item_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_sequence.item.store(Some(native_sq_item));
+                }
+                SlotAccessor::SqAssItem => {
+                    vtable.sq_ass_item_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_sequence.ass_item.store(Some(native_sq_ass_item));
                 }
                 SlotAccessor::TpIter => {
                     vtable.iter_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -1157,6 +1259,24 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.sq_item_func)
+            .is_some()
+        {
+            class.slots.as_sequence.item.store(Some(native_sq_item));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.sq_ass_item_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_sequence
+                .ass_item
+                .store(Some(native_sq_ass_item));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.sq_length_func)
             .is_some()
         {
@@ -1190,6 +1310,17 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 .as_mapping
                 .subscript
                 .store(Some(native_mp_subscript));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.mp_ass_subscript_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_mapping
+                .ass_subscript
+                .store(Some(native_mp_ass_subscript));
         }
         if class
             .get_type_data::<TypeVTable>()
