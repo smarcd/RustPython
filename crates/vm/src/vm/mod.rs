@@ -536,7 +536,7 @@ impl StopTheWorldState {
 #[cfg(all(unix, feature = "threading"))]
 pub(super) fn stw_trace_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| crate::host_env::os::var_os("RUSTPYTHON_STW_TRACE").is_some())
+    *ENABLED.get_or_init(|| std::env::var_os("RUSTPYTHON_STW_TRACE").is_some())
 }
 
 #[cfg(all(unix, feature = "threading"))]
@@ -788,8 +788,8 @@ impl VirtualMachine {
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", 0).map_err(|import_err| {
-            let rustpythonpath_env = crate::host_env::os::var("RUSTPYTHONPATH").ok();
-            let pythonpath_env = crate::host_env::os::var("PYTHONPATH").ok();
+            let rustpythonpath_env = std::env::var("RUSTPYTHONPATH").ok();
+            let pythonpath_env = std::env::var("PYTHONPATH").ok();
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
             let path_contains_env = self.state.config.paths.module_search_paths.iter().any(|s| {
                 Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()
@@ -1386,8 +1386,39 @@ impl VirtualMachine {
                 continue;
             }
 
+            if Self::is_native_extension_module(module, self) {
+                continue;
+            }
+
             Self::module_clear_dict(&dict, self);
         }
+    }
+
+    fn is_native_extension_module(module: &Py<PyModule>, vm: &VirtualMachine) -> bool {
+        let has_native_suffix = |path: &str| {
+            path.ends_with(".so")
+                || path.ends_with(".pyd")
+                || path.ends_with(".dylib")
+                || path.contains(".abi3.")
+        };
+
+        if let Ok(Some(file)) = module.dict().get_item_opt("__file__", vm)
+            && let Some(file) = file.downcast_ref::<PyStr>()
+            && has_native_suffix(file.to_string_lossy().as_ref())
+        {
+            return true;
+        }
+
+        if let Ok(Some(spec)) = module.dict().get_item_opt("__spec__", vm)
+            && !vm.is_none(&spec)
+            && let Ok(origin) = spec.get_attr("origin", vm)
+            && let Some(origin) = origin.downcast_ref::<PyStr>()
+            && has_native_suffix(origin.to_string_lossy().as_ref())
+        {
+            return true;
+        }
+
+        false
     }
 
     /// 2-pass module dict clearing (_PyModule_ClearDict algorithm).
@@ -2040,7 +2071,7 @@ impl VirtualMachine {
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).
-    pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
+    pub fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
         self.exceptions.borrow_mut().stack.push(exc);
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
@@ -2059,7 +2090,7 @@ impl VirtualMachine {
         exc
     }
 
-    pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
+    pub fn current_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow().stack.last().cloned().flatten()
     }
 
@@ -2081,6 +2112,19 @@ impl VirtualMachine {
         }
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
+    }
+
+    pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {
+        let mut excs = self.exceptions.borrow_mut();
+        if let Some(top) = excs.stack.last_mut() {
+            let exc = top.take();
+            drop(excs);
+            #[cfg(feature = "threading")]
+            thread::update_thread_exception(self.topmost_exception());
+            exc
+        } else {
+            None
+        }
     }
 
     pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {

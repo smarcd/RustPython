@@ -22,8 +22,8 @@ pub(crate) mod _signal {
     #[cfg(not(any(unix, windows)))]
     type sighandler_t = usize;
 
-    cfg_select! {
-        windows => {
+    cfg_if::cfg_if! {
+        if #[cfg(windows)] {
             type WakeupFdRaw = libc::SOCKET;
             struct WakeupFd(WakeupFdRaw);
             const INVALID_WAKEUP: libc::SOCKET = windows_sys::Win32::Networking::WinSock::INVALID_SOCKET;
@@ -47,8 +47,7 @@ pub(crate) mod _signal {
                     }
                 }
             }
-        }
-        _ => {
+        } else {
             type WakeupFdRaw = i32;
             type WakeupFd = WakeupFdRaw;
             const INVALID_WAKEUP: WakeupFd = -1;

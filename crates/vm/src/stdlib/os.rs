@@ -27,11 +27,10 @@ pub struct TargetIsDirectory {
     pub(crate) target_is_directory: bool,
 }
 
-cfg_select! {
-    all(any(unix, target_os = "wasi"), not(target_os = "redox")) => {
+cfg_if::cfg_if! {
+    if #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))] {
         use libc::AT_FDCWD;
-    }
-    _ => {
+    } else {
         const AT_FDCWD: i32 = -100;
     }
 }
@@ -2112,11 +2111,10 @@ pub(super) mod _os {
             return Ok(None);
         }
 
-        cfg_select! {
-            any(target_os = "android", target_os = "redox") => {
+        cfg_if::cfg_if! {
+            if #[cfg(any(target_os = "android", target_os = "redox"))] {
                 Ok(Some("UTF-8".to_owned()))
-            }
-            windows => {
+            } else if #[cfg(windows)] {
                 use windows_sys::Win32::System::Console;
                 let cp = match fd {
                     0 => unsafe { Console::GetConsoleCP() },
@@ -2125,8 +2123,7 @@ pub(super) mod _os {
                 };
 
                 Ok(Some(format!("cp{cp}")))
-            }
-            _ => {
+            } else {
                 let encoding = unsafe {
                     let encoding = libc::nl_langinfo(libc::CODESET);
                     if encoding.is_null() || encoding.read() == b'\0' as libc::c_char {

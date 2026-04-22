@@ -397,12 +397,11 @@ impl<T> AsRef<T> for PointerSlot<T> {
 
 pub type PyTypeRef = PyRef<PyType>;
 
-cfg_select! {
-    feature = "threading" => {
+cfg_if::cfg_if! {
+    if #[cfg(feature = "threading")] {
         unsafe impl Send for PyType {}
         unsafe impl Sync for PyType {}
     }
-    _ => {}
 }
 
 /// For attributes we do not use a dict, but an IndexMap, which is an Hash Table
@@ -1241,7 +1240,7 @@ impl PyType {
 }
 
 impl Py<PyType> {
-    pub(crate) fn is_subtype(&self, other: &Self) -> bool {
+    pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
 
@@ -2104,8 +2103,9 @@ impl Constructor for PyType {
         .map_err(|e| vm.new_type_error(e))?;
 
         if let Some(ref slots) = heaptype_slots {
+            let mut offset = base_member_count;
             let class_name = typ.name().to_string();
-            for (offset, member) in (base_member_count..).zip(slots.as_slice().iter()) {
+            for member in slots.as_slice() {
                 // Apply name mangling for private attributes (__x -> _ClassName__x)
                 let member_str = member
                     .to_str()
@@ -2131,6 +2131,7 @@ impl Constructor for PyType {
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)
                 typ.set_attr(attr_name, member_descriptor.into());
+                offset += 1;
             }
         }
 
@@ -2527,7 +2528,9 @@ impl Callable for PyType {
             return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
         };
 
-        if !obj.class().fast_issubclass(zelf) {
+        let issubclass = obj.class().fast_issubclass(zelf);
+
+        if !issubclass {
             return Ok(obj);
         }
 

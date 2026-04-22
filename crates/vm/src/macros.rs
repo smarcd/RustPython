@@ -240,18 +240,3 @@ macro_rules! named_function {
         }
     }};
 }
-
-// can't use PyThreadingConstraint for stuff like this since it's not an auto trait, and
-// therefore we can't add it ad-hoc to a trait object
-macro_rules! py_dyn_fn {
-    (dyn Fn($($arg:ty),*$(,)*) -> $ret:ty) => {
-        cfg_select! {
-            feature = "threading" => {
-                dyn Fn($($arg),*) -> $ret + Send + Sync + 'static
-            }
-            _ => {
-                dyn Fn($($arg),*) -> $ret + 'static
-            }
-        }
-    };
-}

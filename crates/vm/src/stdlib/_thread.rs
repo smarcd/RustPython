@@ -31,12 +31,17 @@ pub(crate) mod _thread {
     use std::thread;
 
     // PYTHREAD_NAME: show current thread name
-    pub const PYTHREAD_NAME: Option<&str> = cfg_select! {
-        windows => Some("nt"),
-        unix => Some("pthread"),
-        any(target_os = "solaris", target_os = "illumos") => Some("solaris"),
-        _ => None,
-    };
+    cfg_if::cfg_if! {
+        if #[cfg(windows)] {
+            pub const PYTHREAD_NAME: Option<&str> = Some("nt");
+        } else if #[cfg(unix)] {
+            pub const PYTHREAD_NAME: Option<&str> = Some("pthread");
+        } else if #[cfg(any(target_os = "solaris", target_os = "illumos"))] {
+            pub const PYTHREAD_NAME: Option<&str> = Some("solaris");
+        } else {
+            pub const PYTHREAD_NAME: Option<&str> = None;
+        }
+    }
 
     // TIMEOUT_MAX_IN_MICROSECONDS is a value in microseconds
     #[cfg(not(target_os = "windows"))]

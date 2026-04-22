@@ -51,9 +51,17 @@ where
     }
 }
 
-pub type PyGetterFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult)>;
+#[cfg(feature = "threading")]
+pub type PyGetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult + Send + Sync + 'static>;
+#[cfg(not(feature = "threading"))]
+pub type PyGetterFunc = Box<dyn Fn(&VirtualMachine, PyObjectRef) -> PyResult + 'static>;
+
+#[cfg(feature = "threading")]
 pub type PySetterFunc =
-    Box<py_dyn_fn!(dyn Fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>)>;
+    Box<dyn Fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()> + Send + Sync + 'static>;
+#[cfg(not(feature = "threading"))]
+pub type PySetterFunc =
+    Box<dyn Fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()> + 'static>;
 
 pub trait IntoPyGetterFunc<T>: PyThreadingConstraint + Sized + 'static {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult;

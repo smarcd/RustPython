@@ -259,19 +259,22 @@ impl<T> Drop for PyAtomicRef<T> {
     }
 }
 
-cfg_select! {
-    feature = "threading" => {
-        unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<T> {}
-        unsafe impl<T: Sync + PyPayload> Sync for PyAtomicRef<T> {}
-        unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<Option<T>> {}
-        unsafe impl<T: Sync + PyPayload> Sync for PyAtomicRef<Option<T>> {}
-        unsafe impl Send for PyAtomicRef<PyObject> {}
-        unsafe impl Sync for PyAtomicRef<PyObject> {}
-        unsafe impl Send for PyAtomicRef<Option<PyObject>> {}
-        unsafe impl Sync for PyAtomicRef<Option<PyObject>> {}
-    }
-    _ => {}
-}
+#[cfg(feature = "threading")]
+unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<T> {}
+#[cfg(feature = "threading")]
+unsafe impl<T: Sync + PyPayload> Sync for PyAtomicRef<T> {}
+#[cfg(feature = "threading")]
+unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<Option<T>> {}
+#[cfg(feature = "threading")]
+unsafe impl<T: Sync + PyPayload> Sync for PyAtomicRef<Option<T>> {}
+#[cfg(feature = "threading")]
+unsafe impl Send for PyAtomicRef<PyObject> {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for PyAtomicRef<PyObject> {}
+#[cfg(feature = "threading")]
+unsafe impl Send for PyAtomicRef<Option<PyObject>> {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for PyAtomicRef<Option<PyObject>> {}
 
 impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

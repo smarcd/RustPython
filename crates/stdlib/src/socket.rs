@@ -1569,18 +1569,17 @@ mod _socket {
                     socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
                 }
 
-                cfg_select! {
-                    any(
+                cfg_if::cfg_if! {
+                    if #[cfg(any(
                         target_os = "android",
                         target_os = "freebsd",
                         target_os = "fuchsia",
                         target_os = "linux",
-                    ) => {
+                    ))] {
                         if proto == -1 {
                             proto = sock.protocol()?.map_or(0, Into::into);
                         }
-                    }
-                    _ => {
+                    } else {
                         proto = 0;
                     }
                 }
@@ -3262,9 +3261,10 @@ mod _socket {
     }
 
     fn sock_from_raw(fileno: RawSocket, vm: &VirtualMachine) -> PyResult<Socket> {
-        let invalid = cfg_select! {
-            windows => fileno == INVALID_SOCKET,
-            _ => fileno < 0
+        let invalid = if cfg!(windows) {
+            fileno == INVALID_SOCKET
+        } else {
+            fileno < 0
         };
         if invalid {
             return Err(vm.new_value_error("negative file descriptor"));

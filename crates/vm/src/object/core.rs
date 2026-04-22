@@ -817,13 +817,10 @@ pub struct PyWeak {
     pub(crate) hash: PyAtomic<crate::common::hash::PyHash>,
 }
 
-cfg_select! {
-    feature = "threading" => {
-        unsafe impl Send for PyWeak {}
-        unsafe impl Sync for PyWeak {}
-    }
-    _ => {}
-}
+#[cfg(feature = "threading")]
+unsafe impl Send for PyWeak {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for PyWeak {}
 
 impl PyWeak {
     /// _PyWeakref_GET_REF: attempt to upgrade the weakref to a strong reference.
@@ -1194,13 +1191,10 @@ impl Clone for PyObjectRef {
     }
 }
 
-cfg_select! {
-    feature = "threading" => {
-        unsafe impl Send for PyObjectRef {}
-        unsafe impl Sync for PyObjectRef {}
-    }
-    _ => {}
-}
+#[cfg(feature = "threading")]
+unsafe impl Send for PyObjectRef {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for PyObjectRef {}
 
 #[repr(transparent)]
 pub struct PyObject(PyInner<Erased>);
@@ -2016,13 +2010,10 @@ impl fmt::Debug for PyStackRef {
     }
 }
 
-cfg_select! {
-    feature = "threading" => {
-        unsafe impl Send for PyStackRef {}
-        unsafe impl Sync for PyStackRef {}
-    }
-    _ => {}
-}
+#[cfg(feature = "threading")]
+unsafe impl Send for PyStackRef {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for PyStackRef {}
 
 // Ensure Option<PyStackRef> uses niche optimization and matches Option<PyObjectRef> in size
 const _: () = assert!(
@@ -2132,13 +2123,10 @@ pub struct PyRef<T> {
     ptr: NonNull<Py<T>>,
 }
 
-cfg_select! {
-    feature = "threading" => {
-        unsafe impl<T> Send for PyRef<T> {}
-        unsafe impl<T> Sync for PyRef<T> {}
-    }
-    _ => {}
-}
+#[cfg(feature = "threading")]
+unsafe impl<T> Send for PyRef<T> {}
+#[cfg(feature = "threading")]
+unsafe impl<T> Sync for PyRef<T> {}
 
 impl<T: fmt::Debug> fmt::Debug for PyRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

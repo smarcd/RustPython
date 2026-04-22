@@ -4,7 +4,10 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
-pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
+    pub(crate) use sys::{
+        DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, cpython_ext_platform_tag,
+        module_def, multiarch,
+    };
 
 #[pymodule(name = "_jit")]
 mod sys_jit {
@@ -53,7 +56,7 @@ mod sys {
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
-        env,
+        env::{self, VarError},
         io::{IsTerminal, Read, Write},
     };
 
@@ -73,6 +76,20 @@ mod sys {
     /// e.g., "x86_64-unknown-linux-gnu" -> "x86_64-linux-gnu"
     pub(crate) fn multiarch() -> String {
         RUST_MULTIARCH.replace("-unknown", "")
+    }
+
+    /// Platform tag shape used by standard CPython extension filenames emitted by PyO3/maturin.
+    /// e.g.:
+    /// - "aarch64-apple-darwin" -> "aarch64-darwin-unknown"
+    /// - "x86_64-unknown-linux-gnu" -> "x86_64-linux-gnu"
+    pub(crate) fn cpython_ext_platform_tag() -> String {
+        let parts: Vec<_> = RUST_MULTIARCH.split('-').collect();
+        match parts.as_slice() {
+            [arch, _vendor, os, env] => format!("{arch}-{os}-{env}"),
+            [arch, _vendor, os] => format!("{arch}-{os}-unknown"),
+            [arch, os] => format!("{arch}-{os}-unknown"),
+            _ => multiarch(),
+        }
     }
 
     #[pymodule(name = "monitoring", with(super::monitoring::sys_monitoring))]
@@ -243,18 +260,26 @@ mod sys {
     pub(crate) const MAXSIZE: isize = isize::MAX;
     #[pyattr(name = "maxunicode")]
     const MAXUNICODE: u32 = core::char::MAX as u32;
-
     #[pyattr(name = "platform")]
-    pub const PLATFORM: &str = cfg_select! {
-        target_os = "linux" => "linux",
-        target_os = "android" => "android",
-        target_os = "macos" => "darwin",
-        target_os = "ios" => "ios",
-        windows => "win32",
-        target_os = "wasi" => "wasi",
-        _ => "unknown"
+    pub const PLATFORM: &str = {
+        cfg_if::cfg_if! {
+            if #[cfg(target_os = "linux")] {
+                "linux"
+            } else if #[cfg(target_os = "android")] {
+                "android"
+            } else if #[cfg(target_os = "macos")] {
+                "darwin"
+            } else if #[cfg(target_os = "ios")] {
+                "ios"
+            } else if #[cfg(windows)] {
+                "win32"
+            } else if #[cfg(target_os = "wasi")] {
+                "wasi"
+            } else {
+                "unknown"
+            }
+        }
     };
-
     #[pyattr(name = "ps1")]
     const PS1: &str = ">>>>> ";
     #[pyattr(name = "ps2")]
@@ -863,18 +888,15 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        #[cfg(feature = "host_env")]
-        let env_var = crate::host_env::os::var("PYTHONBREAKPOINT")
+        let env_var = std::env::var("PYTHONBREAKPOINT")
             .and_then(|env_var| {
                 if env_var.is_empty() {
-                    Err(std::env::VarError::NotPresent)
+                    Err(VarError::NotPresent)
                 } else {
                     Ok(env_var)
                 }
             })
             .unwrap_or_else(|_| "pdb.set_trace".to_owned());
-        #[cfg(not(feature = "host_env"))]
-        let env_var = "pdb.set_trace".to_owned();
 
         if env_var.eq("0") {
             return Ok(vm.ctx.none());
@@ -1086,7 +1108,7 @@ mod sys {
 
     #[cfg(windows)]
     fn get_kernel32_version() -> std::io::Result<(u32, u32, u32)> {
-        use crate::host_env::windows::ToWideString;
+        use crate::common::windows::ToWideString;
         unsafe {
             // Create a wide string for "kernel32.dll"
             let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll").to_wide_with_nul();

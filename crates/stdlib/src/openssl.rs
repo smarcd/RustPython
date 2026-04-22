@@ -7,19 +7,17 @@ mod cert;
 mod ssl_error;
 
 // Conditional compilation for OpenSSL version-specific error codes
-cfg_select! {
+cfg_if::cfg_if! {
     // OpenSSL 3.1.0+
-    ossl310 => {
+    if #[cfg(ossl310)] {
         mod ssl_data_31;
         use ssl_data_31 as ssl_data;
-    }
     // OpenSSL 3.0.0+
-    ossl300 => {
+    } else if #[cfg(ossl300)] {
         mod ssl_data_300;
         use ssl_data_300 as ssl_data;
-    }
     // OpenSSL 1.1.1+ (fallback)
-    _ => {
+    } else {
         mod ssl_data_111;
         use ssl_data_111 as ssl_data;
     }
@@ -32,10 +30,13 @@ use rustpython_common::lock::LazyLock;
 
 // define our own copy of ProbeResult so we can handle the vendor case
 // easily, without having to have a bunch of cfgs
-static PROBE: LazyLock<ProbeResult> = cfg_select! {
-    openssl_vendored => LazyLock::new(openssl_probe::probe)
-    _ => LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] })
-};
+cfg_if::cfg_if! {
+    if #[cfg(openssl_vendored)] {
+        static PROBE: LazyLock<ProbeResult> = LazyLock::new(openssl_probe::probe);
+    } else {
+        static PROBE: LazyLock<ProbeResult> = LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] });
+    }
+}
 
 fn probe() -> &'static ProbeResult {
     &PROBE
@@ -1348,14 +1349,13 @@ mod _ssl {
 
         #[pymethod]
         fn set_default_verify_paths(&self, vm: &VirtualMachine) -> PyResult<()> {
-            cfg_select! {
-                openssl_vendored => {
+            cfg_if::cfg_if! {
+                if #[cfg(openssl_vendored)] {
                     let (cert_file, cert_dir) = get_cert_file_dir();
                     self.builder()
                         .load_verify_locations(Some(cert_file), Some(cert_dir))
                         .map_err(|e| convert_openssl_error(vm, e))
-                }
-                _ => {
+                } else {
                     self.builder()
                         .set_default_verify_paths()
                         .map_err(|e| convert_openssl_error(vm, e))

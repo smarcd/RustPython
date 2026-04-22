@@ -12,18 +12,17 @@ mod resource {
     use core::mem;
     use std::io;
 
-    #[cfg_attr(target_os = "android", expect(deprecated))]
-    const RLIM_NLIMITS: i32 = cfg_select! {
-        target_os = "android" => {
-            libc::RLIM_NLIMITS
-        }
-        _ => {
+    cfg_if::cfg_if! {
+        if #[cfg(target_os = "android")] {
+            #[cfg_attr(target_os = "android", expect(deprecated))]
+            const RLIM_NLIMITS: i32 = libc::RLIM_NLIMITS;
+        } else {
             // This constant isn't abi-stable across os versions, so we just
             // pick a high number so we don't get false positive ValueErrors and just bubble up the
             // EINVAL that get/setrlimit return on an invalid resource
-            256
+            const RLIM_NLIMITS: i32 = 256;
         }
-    };
+    }
 
     // TODO: RLIMIT_OFILE,
     #[pyattr]
