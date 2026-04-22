@@ -148,6 +148,14 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
                     None
                 }
             }
+            SlotAccessor::NbAdd => vtable.and_then(|vtable| vtable.add_func.map(|f| f as *mut c_void)),
+            SlotAccessor::NbMultiply => {
+                vtable.and_then(|vtable| vtable.multiply_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbBool => vtable.and_then(|vtable| vtable.bool_func.map(|f| f as *mut c_void)),
+            SlotAccessor::NbIndex => {
+                vtable.and_then(|vtable| vtable.index_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::TpInit => vtable.and_then(|vtable| vtable.init_func.map(|f| f as *mut c_void)),
             SlotAccessor::TpStr => vtable.and_then(|vtable| vtable.str_func.map(|f| f as *mut c_void)),
             SlotAccessor::TpRepr => vtable.and_then(|vtable| vtable.repr_func.map(|f| f as *mut c_void)),
@@ -250,7 +258,11 @@ pub struct PyGetSetDef {
 struct TypeVTable {
     new_func: Option<newfunc>,
     init_func: Option<initproc>,
+    add_func: Option<binaryfunc>,
+    multiply_func: Option<binaryfunc>,
+    bool_func: Option<inquiry>,
     float_func: Option<unaryfunc>,
+    index_func: Option<unaryfunc>,
     str_func: Option<unaryfunc>,
     repr_func: Option<unaryfunc>,
     sq_length_func: Option<lenfunc>,
@@ -282,6 +294,7 @@ type initproc = unsafe extern "C" fn(
 type unaryfunc = unsafe extern "C" fn(slf: *mut PyObject) -> *mut PyObject;
 type objobjproc = unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject) -> c_int;
 type binaryfunc = unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject) -> *mut PyObject;
+type inquiry = unsafe extern "C" fn(slf: *mut PyObject) -> c_int;
 type lenfunc = unsafe extern "C" fn(slf: *mut PyObject) -> isize;
 type richcmpfunc =
     unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject, op: c_int) -> *mut PyObject;
@@ -354,6 +367,73 @@ fn native_nb_float(
     let result = NonNull::new(result).ok_or_else(|| {
         vm.take_raised_exception()
             .expect("native nb_float returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_nb_add(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let add_func = left
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.add_func)
+        .expect("native_nb_add called without a registered add slot");
+    let left_ptr = unsafe { exported_object_handle(left.as_raw().cast_mut()) };
+    let right_ptr = unsafe { exported_object_handle(right.as_raw().cast_mut()) };
+    let result = unsafe { add_func(left_ptr, right_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native nb_add returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_nb_multiply(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let multiply_func = left
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.multiply_func)
+        .expect("native_nb_multiply called without a registered multiply slot");
+    let left_ptr = unsafe { exported_object_handle(left.as_raw().cast_mut()) };
+    let right_ptr = unsafe { exported_object_handle(right.as_raw().cast_mut()) };
+    let result = unsafe { multiply_func(left_ptr, right_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native nb_multiply returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_nb_bool(num: rustpython_vm::protocol::PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+    let bool_func = num
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.bool_func)
+        .expect("native_nb_bool called without a registered bool slot");
+    let slf_ptr = unsafe { exported_object_handle(num.obj.as_raw().cast_mut()) };
+    let result = unsafe { bool_func(slf_ptr) };
+    match result {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(vm
+            .take_raised_exception()
+            .expect("native nb_bool returned error, but there was no exception set")),
+    }
+}
+
+fn native_nb_index(
+    num: rustpython_vm::protocol::PyNumber<'_>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let index_func = num
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.index_func)
+        .expect("native_nb_index called without a registered index slot");
+    let slf_ptr = unsafe { exported_object_handle(num.obj.as_raw().cast_mut()) };
+    let result = unsafe { index_func(slf_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native nb_index returned NULL, but there was no exception set")
     })?;
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
@@ -691,9 +771,25 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     vtable.init_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.init.store(Some(native_tp_init));
                 }
+                SlotAccessor::NbAdd => {
+                    vtable.add_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.add.store(Some(native_nb_add));
+                }
+                SlotAccessor::NbMultiply => {
+                    vtable.multiply_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.multiply.store(Some(native_nb_multiply));
+                }
+                SlotAccessor::NbBool => {
+                    vtable.bool_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.boolean.store(Some(native_nb_bool));
+                }
                 SlotAccessor::NbFloat => {
                     vtable.float_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.float.store(Some(native_nb_float));
+                }
+                SlotAccessor::NbIndex => {
+                    vtable.index_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.index.store(Some(native_nb_index));
                 }
                 SlotAccessor::TpGetattro => {
                     has_explicit_getattro = true;
@@ -867,10 +963,42 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.add_func)
+            .is_some()
+        {
+            class.slots.as_number.add.store(Some(native_nb_add));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.multiply_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .multiply
+                .store(Some(native_nb_multiply));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.bool_func)
+            .is_some()
+        {
+            class.slots.as_number.boolean.store(Some(native_nb_bool));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.float_func)
             .is_some()
         {
             class.slots.as_number.float.store(Some(native_nb_float));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.index_func)
+            .is_some()
+        {
+            class.slots.as_number.index.store(Some(native_nb_index));
         }
         if class
             .get_type_data::<TypeVTable>()
