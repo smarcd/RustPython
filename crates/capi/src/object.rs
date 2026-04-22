@@ -172,6 +172,12 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             SlotAccessor::SqLength => {
                 vtable.and_then(|vtable| vtable.sq_length_func.map(|f| f as *mut c_void))
             }
+            SlotAccessor::SqConcat => {
+                vtable.and_then(|vtable| vtable.sq_concat_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::SqRepeat => {
+                vtable.and_then(|vtable| vtable.sq_repeat_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::SqItem => vtable.and_then(|vtable| vtable.sq_item_func.map(|f| f as *mut c_void)),
             SlotAccessor::SqAssItem => {
                 vtable.and_then(|vtable| vtable.sq_ass_item_func.map(|f| f as *mut c_void))
@@ -282,6 +288,8 @@ struct TypeVTable {
     index_func: Option<unaryfunc>,
     str_func: Option<unaryfunc>,
     repr_func: Option<unaryfunc>,
+    sq_concat_func: Option<binaryfunc>,
+    sq_repeat_func: Option<ssizeargfunc>,
     sq_item_func: Option<ssizeargfunc>,
     sq_ass_item_func: Option<ssizeobjargproc>,
     sq_length_func: Option<lenfunc>,
@@ -572,6 +580,39 @@ fn native_sq_item(seq: PySequence<'_>, index: isize, vm: &VirtualMachine) -> PyR
     let result = NonNull::new(result).ok_or_else(|| {
         vm.take_raised_exception()
             .expect("native sq_item returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_sq_concat(seq: PySequence<'_>, other: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let concat_func = seq
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.sq_concat_func)
+        .expect("native_sq_concat called without a registered concat slot");
+    let slf_ptr = unsafe { exported_object_handle(seq.obj.as_raw().cast_mut()) };
+    let other_ptr = unsafe { exported_object_handle(other.as_raw().cast_mut()) };
+    let result = unsafe { concat_func(slf_ptr, other_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native sq_concat returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+
+fn native_sq_repeat(seq: PySequence<'_>, count: isize, vm: &VirtualMachine) -> PyResult {
+    let repeat_func = seq
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.sq_repeat_func)
+        .expect("native_sq_repeat called without a registered repeat slot");
+    let slf_ptr = unsafe { exported_object_handle(seq.obj.as_raw().cast_mut()) };
+    let result = unsafe { repeat_func(slf_ptr, count) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native sq_repeat returned NULL, but there was no exception set")
     })?;
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
@@ -1020,6 +1061,14 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     vtable.sq_length_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_sequence.length.store(Some(native_sq_length));
                 }
+                SlotAccessor::SqConcat => {
+                    vtable.sq_concat_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_sequence.concat.store(Some(native_sq_concat));
+                }
+                SlotAccessor::SqRepeat => {
+                    vtable.sq_repeat_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_sequence.repeat.store(Some(native_sq_repeat));
+                }
                 SlotAccessor::SqItem => {
                     vtable.sq_item_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_sequence.item.store(Some(native_sq_item));
@@ -1256,6 +1305,20 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 .as_sequence
                 .contains
                 .store(Some(native_sq_contains));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.sq_concat_func)
+            .is_some()
+        {
+            class.slots.as_sequence.concat.store(Some(native_sq_concat));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.sq_repeat_func)
+            .is_some()
+        {
+            class.slots.as_sequence.repeat.store(Some(native_sq_repeat));
         }
         if class
             .get_type_data::<TypeVTable>()
