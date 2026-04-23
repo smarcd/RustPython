@@ -26,6 +26,9 @@
 - `blake3`: package-owned Python tests green except the remaining `numpy`-dependent skip
   - `ran=26 skipped=1 failed=0`
   - skipped test: `test_strided_array_fails`
+  - exact buffer contract exercised by that case: a 1-D readable/writable strided view with `format='B'`, `itemsize=1`, `shape=(2,)`, `strides=(2,)`, `suboffsets=()`, and `readonly=False`
+  - direct reproduction against the facade with a sliced `memoryview` yields `BufferError: non-contiguous buffers are not yet supported`, which matches the package expectation for a non-contiguous input
+  - sharp blocker: the remaining skipped test is still a `numpy` lane problem, not a missing strided-buffer contract in `pybuffer.rs`
   - final runner status: `blake3-manual-tests-ok`
 
 ## Verification policy
@@ -50,6 +53,7 @@ Downstream verification helpers are local-only and are not part of the RustPytho
 ### Buffer / array / `numpy`
 - richer buffer support in `crates/capi/src/pybuffer.rs`
 - keep the `numpy`-dependent gaps explicit until a real package lane proves the next required surface
+- the current `blake3` strided-array case is now a documented packaging/lane blocker, not an undefined buffer-semantic gap
 
 ### Unicode / lifecycle / finalization
 - unicode and encoding APIs in `crates/capi/src/unicodeobject.rs`
