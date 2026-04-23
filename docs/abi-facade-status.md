@@ -62,3 +62,37 @@ Downstream verification helpers are local-only and are not part of the RustPytho
 ### Package matrix expansion
 - add the next non-`numpy` pristine PyO3 package lane when local artifacts can be recreated cleanly
 - expand the matrix toward additional real-world PyO3 packages as downstream proof points require it
+
+## Additional Package Lane: `jsonschema-py`
+
+- package: `jsonschema-py` from upstream `jsonschema-rs` `master` (`89848e0e0c79093516e3c0bf9e670df8d45d9b07`)
+- unchanged source confirmation:
+  - package source was exercised from a clean temporary worktree at `/tmp/jsonschema-py-abi-facade`
+  - no package files were edited
+  - local-only build glue used `/tmp/pyo3-cpython-abi3.config` and a local venv at `/tmp/jsonschema-abi-venv`
+- build outcome:
+  - unchanged `jsonschema-py` wheel built successfully against pristine `pyo3 0.28.3`
+  - command:
+    - `PYO3_CONFIG_FILE=/tmp/pyo3-cpython-abi3.config maturin build --strip false --interpreter /tmp/jsonschema-abi-venv/bin/python --out /tmp/jsonschema-wheels -m /tmp/jsonschema-py-abi-facade/crates/jsonschema-py/Cargo.toml`
+- test/import outcome:
+  - import under the maintained RustPython binary failed immediately with `ImportError: dlopen failed`
+  - command:
+    - `PYTHONPATH=/tmp/jsonschema-abi-venv/lib/python3.14/site-packages /Users/sunny/work/codepod/rustpython-abi-facade/target/debug/rustpython -c 'import jsonschema_rs; print(jsonschema_rs.__all__[:5]); print(jsonschema_rs.is_valid({"type":"integer"}, 1))'`
+  - blocker class: import-time symbol gap
+  - exact missing exported symbols from the maintained binary, derived from `nm -u` on `jsonschema_rs.abi3.so` versus `nm -gU` on `target/debug/rustpython`:
+    - `_PyCallable_Check`
+    - `_PyDict_Copy`
+    - `_PyErr_Clear`
+    - `_PyFloat_AsDouble`
+    - `_PyFloat_Type`
+    - `_PyIter_Next`
+    - `_PyList_GetSlice`
+    - `_PyLong_AsLongLong`
+    - `_PyModule_NewObject`
+    - `_PyNumber_Long`
+    - `_PyUnicode_InternFromString`
+    - `_Py_NewRef`
+    - `__Py_NotImplementedStruct`
+- facade/core files changed to support it:
+  - none in this task
+  - only `docs/abi-facade-status.md` was updated to record the concrete package frontier
