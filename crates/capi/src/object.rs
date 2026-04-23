@@ -162,11 +162,23 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             }
             SlotAccessor::NbInt => vtable.and_then(|vtable| vtable.int_func.map(|f| f as *mut c_void)),
             SlotAccessor::NbAdd => vtable.and_then(|vtable| vtable.add_func.map(|f| f as *mut c_void)),
+            SlotAccessor::NbInplaceAdd => {
+                vtable.and_then(|vtable| vtable.inplace_add_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbInplaceSubtract => {
+                vtable.and_then(|vtable| vtable.inplace_subtract_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::NbMultiply => {
                 vtable.and_then(|vtable| vtable.multiply_func.map(|f| f as *mut c_void))
             }
+            SlotAccessor::NbInplaceMultiply => {
+                vtable.and_then(|vtable| vtable.inplace_multiply_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::NbRemainder => {
                 vtable.and_then(|vtable| vtable.remainder_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbInplaceRemainder => {
+                vtable.and_then(|vtable| vtable.inplace_remainder_func.map(|f| f as *mut c_void))
             }
             SlotAccessor::NbDivmod => {
                 vtable.and_then(|vtable| vtable.divmod_func.map(|f| f as *mut c_void))
@@ -174,20 +186,38 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             SlotAccessor::NbPower => {
                 vtable.and_then(|vtable| vtable.power_func.map(|f| f as *mut c_void))
             }
+            SlotAccessor::NbInplacePower => {
+                vtable.and_then(|vtable| vtable.inplace_power_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::NbLshift => {
                 vtable.and_then(|vtable| vtable.lshift_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbInplaceLshift => {
+                vtable.and_then(|vtable| vtable.inplace_lshift_func.map(|f| f as *mut c_void))
             }
             SlotAccessor::NbRshift => {
                 vtable.and_then(|vtable| vtable.rshift_func.map(|f| f as *mut c_void))
             }
+            SlotAccessor::NbInplaceRshift => {
+                vtable.and_then(|vtable| vtable.inplace_rshift_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::NbFloorDivide => {
                 vtable.and_then(|vtable| vtable.floor_divide_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbInplaceFloorDivide => {
+                vtable.and_then(|vtable| vtable.inplace_floor_divide_func.map(|f| f as *mut c_void))
             }
             SlotAccessor::NbTrueDivide => {
                 vtable.and_then(|vtable| vtable.true_divide_func.map(|f| f as *mut c_void))
             }
+            SlotAccessor::NbInplaceTrueDivide => {
+                vtable.and_then(|vtable| vtable.inplace_true_divide_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::NbMatrixMultiply => {
                 vtable.and_then(|vtable| vtable.matrix_multiply_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbInplaceMatrixMultiply => {
+                vtable.and_then(|vtable| vtable.inplace_matrix_multiply_func.map(|f| f as *mut c_void))
             }
             SlotAccessor::NbBool => vtable.and_then(|vtable| vtable.bool_func.map(|f| f as *mut c_void)),
             SlotAccessor::NbIndex => {
@@ -212,8 +242,14 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             SlotAccessor::SqConcat => {
                 vtable.and_then(|vtable| vtable.sq_concat_func.map(|f| f as *mut c_void))
             }
+            SlotAccessor::SqInplaceConcat => {
+                vtable.and_then(|vtable| vtable.sq_inplace_concat_func.map(|f| f as *mut c_void))
+            }
             SlotAccessor::SqRepeat => {
                 vtable.and_then(|vtable| vtable.sq_repeat_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::SqInplaceRepeat => {
+                vtable.and_then(|vtable| vtable.sq_inplace_repeat_func.map(|f| f as *mut c_void))
             }
             SlotAccessor::SqItem => vtable.and_then(|vtable| vtable.sq_item_func.map(|f| f as *mut c_void)),
             SlotAccessor::SqAssItem => {
@@ -238,6 +274,15 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
             SlotAccessor::TpHash => vtable.and_then(|vtable| vtable.hash_func.map(|f| f as *mut c_void)),
             SlotAccessor::NbSubtract => {
                 vtable.and_then(|vtable| vtable.subtract_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbInplaceAnd => {
+                vtable.and_then(|vtable| vtable.inplace_and_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbInplaceOr => {
+                vtable.and_then(|vtable| vtable.inplace_or_func.map(|f| f as *mut c_void))
+            }
+            SlotAccessor::NbInplaceXor => {
+                vtable.and_then(|vtable| vtable.inplace_xor_func.map(|f| f as *mut c_void))
             }
             SlotAccessor::NbAnd => vtable.and_then(|vtable| vtable.and_func.map(|f| f as *mut c_void)),
             SlotAccessor::NbOr => vtable.and_then(|vtable| vtable.or_func.map(|f| f as *mut c_void)),
@@ -324,22 +369,34 @@ struct TypeVTable {
     invert_func: Option<unaryfunc>,
     int_func: Option<unaryfunc>,
     add_func: Option<binaryfunc>,
+    inplace_add_func: Option<binaryfunc>,
+    inplace_subtract_func: Option<binaryfunc>,
     multiply_func: Option<binaryfunc>,
+    inplace_multiply_func: Option<binaryfunc>,
     remainder_func: Option<binaryfunc>,
+    inplace_remainder_func: Option<binaryfunc>,
     divmod_func: Option<binaryfunc>,
     power_func: Option<ternaryfunc>,
+    inplace_power_func: Option<ternaryfunc>,
     lshift_func: Option<binaryfunc>,
+    inplace_lshift_func: Option<binaryfunc>,
     rshift_func: Option<binaryfunc>,
+    inplace_rshift_func: Option<binaryfunc>,
     floor_divide_func: Option<binaryfunc>,
+    inplace_floor_divide_func: Option<binaryfunc>,
     true_divide_func: Option<binaryfunc>,
+    inplace_true_divide_func: Option<binaryfunc>,
     matrix_multiply_func: Option<binaryfunc>,
+    inplace_matrix_multiply_func: Option<binaryfunc>,
     bool_func: Option<inquiry>,
     float_func: Option<unaryfunc>,
     index_func: Option<unaryfunc>,
     str_func: Option<unaryfunc>,
     repr_func: Option<unaryfunc>,
     sq_concat_func: Option<binaryfunc>,
+    sq_inplace_concat_func: Option<binaryfunc>,
     sq_repeat_func: Option<ssizeargfunc>,
+    sq_inplace_repeat_func: Option<ssizeargfunc>,
     sq_item_func: Option<ssizeargfunc>,
     sq_ass_item_func: Option<ssizeobjargproc>,
     sq_length_func: Option<lenfunc>,
@@ -352,6 +409,9 @@ struct TypeVTable {
     richcompare_func: Option<richcmpfunc>,
     hash_func: Option<hashfunc>,
     subtract_func: Option<binaryfunc>,
+    inplace_and_func: Option<binaryfunc>,
+    inplace_or_func: Option<binaryfunc>,
+    inplace_xor_func: Option<binaryfunc>,
     and_func: Option<binaryfunc>,
     or_func: Option<binaryfunc>,
     xor_func: Option<binaryfunc>,
@@ -390,6 +450,72 @@ type lenfunc = unsafe extern "C" fn(slf: *mut PyObject) -> isize;
 type richcmpfunc =
     unsafe extern "C" fn(slf: *mut PyObject, obj: *mut PyObject, op: c_int) -> *mut PyObject;
 type hashfunc = unsafe extern "C" fn(slf: *mut PyObject) -> isize;
+
+macro_rules! define_native_binary_slot {
+    ($name:ident, $field:ident, $expect:literal, $error:literal) => {
+        fn $name(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyResult {
+            let slot_func = left
+                .class()
+                .get_type_data::<TypeVTable>()
+                .and_then(|vtable| vtable.$field)
+                .expect($expect);
+            let left_ptr = unsafe { exported_object_handle(left.as_raw().cast_mut()) };
+            let right_ptr = unsafe { exported_object_handle(right.as_raw().cast_mut()) };
+            let result = unsafe { slot_func(left_ptr, right_ptr) };
+            let result = NonNull::new(result).ok_or_else(|| {
+                vm.take_raised_exception()
+                    .expect($error)
+            })?;
+            unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+        }
+    };
+}
+
+macro_rules! define_native_ternary_slot {
+    ($name:ident, $field:ident, $expect:literal, $error:literal) => {
+        fn $name(
+            left: &PyObject,
+            right: &PyObject,
+            third: &PyObject,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let slot_func = left
+                .class()
+                .get_type_data::<TypeVTable>()
+                .and_then(|vtable| vtable.$field)
+                .expect($expect);
+            let left_ptr = unsafe { exported_object_handle(left.as_raw().cast_mut()) };
+            let right_ptr = unsafe { exported_object_handle(right.as_raw().cast_mut()) };
+            let third_ptr = unsafe { exported_object_handle(third.as_raw().cast_mut()) };
+            let result = unsafe { slot_func(left_ptr, right_ptr, third_ptr) };
+            let result = NonNull::new(result).ok_or_else(|| {
+                vm.take_raised_exception()
+                    .expect($error)
+            })?;
+            unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+        }
+    };
+}
+
+macro_rules! define_native_ssize_slot {
+    ($name:ident, $field:ident, $expect:literal, $error:literal) => {
+        fn $name(seq: PySequence<'_>, count: isize, vm: &VirtualMachine) -> PyResult {
+            let slot_func = seq
+                .obj
+                .class()
+                .get_type_data::<TypeVTable>()
+                .and_then(|vtable| vtable.$field)
+                .expect($expect);
+            let slf_ptr = unsafe { exported_object_handle(seq.obj.as_raw().cast_mut()) };
+            let result = unsafe { slot_func(slf_ptr, count) };
+            let result = NonNull::new(result).ok_or_else(|| {
+                vm.take_raised_exception()
+                    .expect($error)
+            })?;
+            unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+        }
+    };
+}
 
 fn native_tp_new(ty: rustpython_vm::builtins::PyTypeRef, args: rustpython_vm::function::FuncArgs, vm: &VirtualMachine) -> PyResult {
     let new_func = ty.get_type_data::<TypeVTable>().unwrap().new_func.unwrap();
@@ -888,6 +1014,33 @@ fn native_sq_repeat(seq: PySequence<'_>, count: isize, vm: &VirtualMachine) -> P
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
+fn native_sq_inplace_concat(
+    seq: PySequence<'_>,
+    other: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let inplace_concat_func = seq
+        .obj
+        .class()
+        .get_type_data::<TypeVTable>()
+        .and_then(|vtable| vtable.sq_inplace_concat_func)
+        .expect("native_sq_inplace_concat called without a registered inplace_concat slot");
+    let slf_ptr = unsafe { exported_object_handle(seq.obj.as_raw().cast_mut()) };
+    let other_ptr = unsafe { exported_object_handle(other.as_raw().cast_mut()) };
+    let result = unsafe { inplace_concat_func(slf_ptr, other_ptr) };
+    let result = NonNull::new(result).ok_or_else(|| {
+        vm.take_raised_exception()
+            .expect("native sq_inplace_concat returned NULL, but there was no exception set")
+    })?;
+    unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
+}
+define_native_ssize_slot!(
+    native_sq_inplace_repeat,
+    sq_inplace_repeat_func,
+    "native_sq_inplace_repeat called without a registered inplace_repeat slot",
+    "native sq_inplace_repeat returned NULL, but there was no exception set"
+);
+
 fn native_sq_ass_item(
     seq: PySequence<'_>,
     index: isize,
@@ -1114,6 +1267,85 @@ fn native_nb_xor(left: &PyObject, right: &PyObject, vm: &VirtualMachine) -> PyRe
     unsafe { Ok(owned_from_exported_new_ref(result.as_ptr())) }
 }
 
+define_native_binary_slot!(
+    native_nb_inplace_add,
+    inplace_add_func,
+    "native_nb_inplace_add called without a registered inplace_add slot",
+    "native nb_inplace_add returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_subtract,
+    inplace_subtract_func,
+    "native_nb_inplace_subtract called without a registered inplace_subtract slot",
+    "native nb_inplace_subtract returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_multiply,
+    inplace_multiply_func,
+    "native_nb_inplace_multiply called without a registered inplace_multiply slot",
+    "native nb_inplace_multiply returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_remainder,
+    inplace_remainder_func,
+    "native_nb_inplace_remainder called without a registered inplace_remainder slot",
+    "native nb_inplace_remainder returned NULL, but there was no exception set"
+);
+define_native_ternary_slot!(
+    native_nb_inplace_power,
+    inplace_power_func,
+    "native_nb_inplace_power called without a registered inplace_power slot",
+    "native nb_inplace_power returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_lshift,
+    inplace_lshift_func,
+    "native_nb_inplace_lshift called without a registered inplace_lshift slot",
+    "native nb_inplace_lshift returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_rshift,
+    inplace_rshift_func,
+    "native_nb_inplace_rshift called without a registered inplace_rshift slot",
+    "native nb_inplace_rshift returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_floor_divide,
+    inplace_floor_divide_func,
+    "native_nb_inplace_floor_divide called without a registered inplace_floor_divide slot",
+    "native nb_inplace_floor_divide returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_true_divide,
+    inplace_true_divide_func,
+    "native_nb_inplace_true_divide called without a registered inplace_true_divide slot",
+    "native nb_inplace_true_divide returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_matrix_multiply,
+    inplace_matrix_multiply_func,
+    "native_nb_inplace_matrix_multiply called without a registered inplace_matrix_multiply slot",
+    "native nb_inplace_matrix_multiply returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_and,
+    inplace_and_func,
+    "native_nb_inplace_and called without a registered inplace_and slot",
+    "native nb_inplace_and returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_or,
+    inplace_or_func,
+    "native_nb_inplace_or called without a registered inplace_or slot",
+    "native nb_inplace_or returned NULL, but there was no exception set"
+);
+define_native_binary_slot!(
+    native_nb_inplace_xor,
+    inplace_xor_func,
+    "native_nb_inplace_xor called without a registered inplace_xor slot",
+    "native nb_inplace_xor returned NULL, but there was no exception set"
+);
+
 fn native_tp_richcompare(
     obj: &PyObject,
     other: &PyObject,
@@ -1294,13 +1526,41 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     vtable.add_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.add.store(Some(native_nb_add));
                 }
+                SlotAccessor::NbInplaceAdd => {
+                    vtable.inplace_add_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.inplace_add.store(Some(native_nb_inplace_add));
+                }
+                SlotAccessor::NbInplaceSubtract => {
+                    vtable.inplace_subtract_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_subtract
+                        .store(Some(native_nb_inplace_subtract));
+                }
                 SlotAccessor::NbMultiply => {
                     vtable.multiply_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.multiply.store(Some(native_nb_multiply));
                 }
+                SlotAccessor::NbInplaceMultiply => {
+                    vtable.inplace_multiply_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_multiply
+                        .store(Some(native_nb_inplace_multiply));
+                }
                 SlotAccessor::NbRemainder => {
                     vtable.remainder_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.remainder.store(Some(native_nb_remainder));
+                }
+                SlotAccessor::NbInplaceRemainder => {
+                    vtable.inplace_remainder_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_remainder
+                        .store(Some(native_nb_inplace_remainder));
                 }
                 SlotAccessor::NbDivmod => {
                     vtable.divmod_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -1310,13 +1570,34 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     vtable.power_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.power.store(Some(native_nb_power));
                 }
+                SlotAccessor::NbInplacePower => {
+                    vtable.inplace_power_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_power
+                        .store(Some(native_nb_inplace_power));
+                }
                 SlotAccessor::NbLshift => {
                     vtable.lshift_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.lshift.store(Some(native_nb_lshift));
                 }
+                SlotAccessor::NbInplaceLshift => {
+                    vtable.inplace_lshift_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_lshift
+                        .store(Some(native_nb_inplace_lshift));
+                }
                 SlotAccessor::NbRshift => {
                     vtable.rshift_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.rshift.store(Some(native_nb_rshift));
+                }
+                SlotAccessor::NbInplaceRshift => {
+                    vtable.inplace_rshift_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_rshift
+                        .store(Some(native_nb_inplace_rshift));
                 }
                 SlotAccessor::NbFloorDivide => {
                     vtable.floor_divide_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -1325,6 +1606,14 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                         .floor_divide
                         .store(Some(native_nb_floor_divide));
                 }
+                SlotAccessor::NbInplaceFloorDivide => {
+                    vtable.inplace_floor_divide_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_floor_divide
+                        .store(Some(native_nb_inplace_floor_divide));
+                }
                 SlotAccessor::NbTrueDivide => {
                     vtable.true_divide_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots
@@ -1332,12 +1621,28 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                         .true_divide
                         .store(Some(native_nb_true_divide));
                 }
+                SlotAccessor::NbInplaceTrueDivide => {
+                    vtable.inplace_true_divide_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_true_divide
+                        .store(Some(native_nb_inplace_true_divide));
+                }
                 SlotAccessor::NbMatrixMultiply => {
                     vtable.matrix_multiply_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots
                         .as_number
                         .matrix_multiply
                         .store(Some(native_nb_matrix_multiply));
+                }
+                SlotAccessor::NbInplaceMatrixMultiply => {
+                    vtable.inplace_matrix_multiply_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_number
+                        .inplace_matrix_multiply
+                        .store(Some(native_nb_inplace_matrix_multiply));
                 }
                 SlotAccessor::NbBool => {
                     vtable.bool_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -1397,9 +1702,25 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                     vtable.sq_concat_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_sequence.concat.store(Some(native_sq_concat));
                 }
+                SlotAccessor::SqInplaceConcat => {
+                    vtable.sq_inplace_concat_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_sequence
+                        .inplace_concat
+                        .store(Some(native_sq_inplace_concat));
+                }
                 SlotAccessor::SqRepeat => {
                     vtable.sq_repeat_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_sequence.repeat.store(Some(native_sq_repeat));
+                }
+                SlotAccessor::SqInplaceRepeat => {
+                    vtable.sq_inplace_repeat_func =
+                        Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots
+                        .as_sequence
+                        .inplace_repeat
+                        .store(Some(native_sq_inplace_repeat));
                 }
                 SlotAccessor::SqItem => {
                     vtable.sq_item_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -1436,6 +1757,18 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 SlotAccessor::NbSubtract => {
                     vtable.subtract_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
                     slots.as_number.subtract.store(Some(native_nb_subtract));
+                }
+                SlotAccessor::NbInplaceAnd => {
+                    vtable.inplace_and_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.inplace_and.store(Some(native_nb_inplace_and));
+                }
+                SlotAccessor::NbInplaceOr => {
+                    vtable.inplace_or_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.inplace_or.store(Some(native_nb_inplace_or));
+                }
+                SlotAccessor::NbInplaceXor => {
+                    vtable.inplace_xor_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
+                    slots.as_number.inplace_xor.store(Some(native_nb_inplace_xor));
                 }
                 SlotAccessor::NbAnd => {
                     vtable.and_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -1597,6 +1930,24 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_add_func)
+            .is_some()
+        {
+            class.slots.as_number.inplace_add.store(Some(native_nb_inplace_add));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_subtract_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_subtract
+                .store(Some(native_nb_inplace_subtract));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.call_func)
             .is_some()
         {
@@ -1629,10 +1980,32 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_multiply_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_multiply
+                .store(Some(native_nb_inplace_multiply));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.remainder_func)
             .is_some()
         {
             class.slots.as_number.remainder.store(Some(native_nb_remainder));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_remainder_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_remainder
+                .store(Some(native_nb_inplace_remainder));
         }
         if class
             .get_type_data::<TypeVTable>()
@@ -1650,6 +2023,17 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_power_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_power
+                .store(Some(native_nb_inplace_power));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.lshift_func)
             .is_some()
         {
@@ -1657,10 +2041,32 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_lshift_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_lshift
+                .store(Some(native_nb_inplace_lshift));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.rshift_func)
             .is_some()
         {
             class.slots.as_number.rshift.store(Some(native_nb_rshift));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_rshift_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_rshift
+                .store(Some(native_nb_inplace_rshift));
         }
         if class
             .get_type_data::<TypeVTable>()
@@ -1675,6 +2081,17 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_floor_divide_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_floor_divide
+                .store(Some(native_nb_inplace_floor_divide));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.true_divide_func)
             .is_some()
         {
@@ -1686,6 +2103,17 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_true_divide_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_true_divide
+                .store(Some(native_nb_inplace_true_divide));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.matrix_multiply_func)
             .is_some()
         {
@@ -1694,6 +2122,17 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 .as_number
                 .matrix_multiply
                 .store(Some(native_nb_matrix_multiply));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_matrix_multiply_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_number
+                .inplace_matrix_multiply
+                .store(Some(native_nb_inplace_matrix_multiply));
         }
         if class
             .get_type_data::<TypeVTable>()
@@ -1750,10 +2189,32 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.sq_inplace_concat_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_sequence
+                .inplace_concat
+                .store(Some(native_sq_inplace_concat));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.sq_repeat_func)
             .is_some()
         {
             class.slots.as_sequence.repeat.store(Some(native_sq_repeat));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.sq_inplace_repeat_func)
+            .is_some()
+        {
+            class
+                .slots
+                .as_sequence
+                .inplace_repeat
+                .store(Some(native_sq_inplace_repeat));
         }
         if class
             .get_type_data::<TypeVTable>()
@@ -1858,6 +2319,13 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_and_func)
+            .is_some()
+        {
+            class.slots.as_number.inplace_and.store(Some(native_nb_inplace_and));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.and_func)
             .is_some()
         {
@@ -1865,10 +2333,24 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
         }
         if class
             .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_or_func)
+            .is_some()
+        {
+            class.slots.as_number.inplace_or.store(Some(native_nb_inplace_or));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
             .and_then(|vtable| vtable.or_func)
             .is_some()
         {
             class.slots.as_number.or.store(Some(native_nb_or));
+        }
+        if class
+            .get_type_data::<TypeVTable>()
+            .and_then(|vtable| vtable.inplace_xor_func)
+            .is_some()
+        {
+            class.slots.as_number.inplace_xor.store(Some(native_nb_inplace_xor));
         }
         if class
             .get_type_data::<TypeVTable>()
