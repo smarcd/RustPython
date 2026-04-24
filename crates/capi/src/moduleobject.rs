@@ -1,5 +1,7 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::handles::resolve_object_handle;
+use rustpython_vm::builtins::PyStr;
 use rustpython_vm::builtins::PyModule;
 
 #[repr(C)]
@@ -17,5 +19,14 @@ pub extern "C" fn PyModule_GetNameObject(module: *mut PyObject) -> *mut PyObject
     with_vm(|vm| {
         let module = unsafe { &*module }.try_downcast_ref::<PyModule>(vm)?;
         module.get_attr("__name__", vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyModule_NewObject(name: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let name = unsafe { &*resolve_object_handle(name) }.try_downcast_ref::<PyStr>(vm)?;
+        let name = name.to_string_lossy().into_owned();
+        Ok(vm.new_module(&name, vm.ctx.new_dict(), None))
     })
 }

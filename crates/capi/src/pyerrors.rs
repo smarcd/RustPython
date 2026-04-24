@@ -162,6 +162,13 @@ pub extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_ch
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Clear() {
+    with_vm::<(), ()>(|vm| {
+        let _ = vm.take_raised_exception();
+    });
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyErr_PrintEx(_set_sys_last_vars: c_int) {
     with_vm(|vm| {
         let exception = vm

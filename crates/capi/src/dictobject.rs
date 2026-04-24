@@ -3,6 +3,7 @@ use crate::pystate::with_vm;
 use crate::handles::{exported_object_handle, resolve_object_handle};
 use core::ffi::c_int;
 use rustpython_vm::AsObject;
+use rustpython_vm::PyPayload;
 use rustpython_vm::builtins::PyDict;
 
 #[unsafe(no_mangle)]
@@ -129,6 +130,15 @@ pub extern "C" fn PyDict_Items(dict: *mut PyObject) -> *mut PyObject {
             .map(|(key, value)| vm.ctx.new_tuple(vec![key, value]).into())
             .collect::<Vec<_>>();
         Ok(vm.ctx.new_list(items))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyDict_Copy(dict: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let dict = unsafe { &*resolve_object_handle(dict) }.try_downcast_ref::<PyDict>(vm)?;
+        let copied: rustpython_vm::PyObjectRef = dict.copy().into_ref(&vm.ctx).into();
+        Ok(copied)
     })
 }
 

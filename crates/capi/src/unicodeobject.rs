@@ -1,6 +1,6 @@
 use crate::handles::{exported_object_handle, resolve_object_handle};
 use crate::{PyObject, with_vm};
-use core::ffi::{c_char, c_int};
+use core::ffi::{CStr, c_char, c_int};
 use core::ptr;
 use core::ptr::NonNull;
 use core::slice;
@@ -79,6 +79,15 @@ pub extern "C" fn PyUnicode_InternInPlace(string: *mut *mut PyObject) {
 
         unsafe { *string = exported_object_handle(interned.into_raw().as_ptr()) }
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyUnicode_InternFromString(string: *const c_char) -> *mut PyObject {
+    let mut unicode = PyUnicode_FromStringAndSize(string, unsafe {
+        CStr::from_ptr(string).to_bytes().len() as isize
+    });
+    PyUnicode_InternInPlace(&mut unicode);
+    unicode
 }
 
 #[unsafe(no_mangle)]

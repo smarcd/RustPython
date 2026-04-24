@@ -65,6 +65,22 @@ pub extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulonglong {
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyLong_AsLongLong(obj: *mut PyObject) -> c_longlong {
+    with_vm::<PyResult<c_longlong>, _>(|vm| {
+        let obj_ref = unsafe { &*obj };
+        let int_obj = obj_ref
+            .to_owned()
+            .try_downcast::<PyInt>(vm)
+            .or_else(|_| obj_ref.try_index(vm))?;
+
+        int_obj
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long long"))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;

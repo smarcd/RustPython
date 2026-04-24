@@ -293,6 +293,14 @@ pub extern "C" fn PySequence_Check(obj: *mut PyObject) -> c_int {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyCallable_Check(obj: *mut PyObject) -> c_int {
+    with_vm(|_vm| {
+        let obj = unsafe { &*resolve_object_handle(obj) };
+        Ok(obj.is_callable())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyIter_NextItem(iter: *mut PyObject, item: *mut *mut PyObject) -> c_int {
     let mut result = 0;
     let status: c_int = with_vm(|vm| -> rustpython_vm::PyResult<()> {
@@ -318,10 +326,30 @@ pub extern "C" fn PyIter_NextItem(iter: *mut PyObject, item: *mut *mut PyObject)
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyIter_Next(iter: *mut PyObject) -> *mut PyObject {
+    let mut item = core::ptr::null_mut();
+    match PyIter_NextItem(iter, &mut item) {
+        1 => item,
+        0 => core::ptr::null_mut(),
+        -1 => core::ptr::null_mut(),
+        _ => core::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyNumber_Index(o: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*resolve_object_handle(o) };
         obj.try_index(vm)
+            .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyNumber_Long(o: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { &*resolve_object_handle(o) };
+        obj.try_int(vm)
             .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
     })
 }

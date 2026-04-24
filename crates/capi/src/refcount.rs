@@ -34,6 +34,12 @@ pub extern "C" fn Py_IncRef(op: *mut PyObject) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn Py_NewRef(op: *mut PyObject) -> *mut PyObject {
+    Py_IncRef(op);
+    op
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn Py_REFCNT(op: *mut PyObject) -> isize {
     if let Some(refcnt) = unsafe { wrapper_refcnt(op) } {
         return refcnt;

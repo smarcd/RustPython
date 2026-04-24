@@ -79,6 +79,18 @@ pub extern "C" fn PyList_SetItem(list: *mut PyObject, index: isize, item: *mut P
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn PyList_GetSlice(list: *mut PyObject, low: isize, high: isize) -> *mut PyObject {
+    with_vm(|vm| {
+        let list = unsafe { &*resolve_object_handle(list) }.try_downcast_ref::<PyList>(vm)?;
+        let items = list.borrow_vec();
+        let len = items.len() as isize;
+        let start = low.clamp(0, len) as usize;
+        let end = high.clamp(start as isize, len) as usize;
+        Ok(vm.ctx.new_list(items[start..end].to_vec()))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::exceptions::PyIndexError;

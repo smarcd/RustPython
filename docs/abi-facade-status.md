@@ -75,7 +75,7 @@ Downstream verification helpers are local-only and are not part of the RustPytho
   - command:
     - `PYO3_CONFIG_FILE=/tmp/pyo3-cpython-abi3.config maturin build --strip false --interpreter /tmp/jsonschema-abi-venv/bin/python --out /tmp/jsonschema-wheels -m /tmp/jsonschema-py-abi-facade/crates/jsonschema-py/Cargo.toml`
 - test/import outcome:
-  - import under the maintained RustPython binary failed immediately with `ImportError: dlopen failed`
+  - initial import under the maintained RustPython binary failed immediately with `ImportError: dlopen failed`
   - command:
     - `PYTHONPATH=/tmp/jsonschema-abi-venv/lib/python3.14/site-packages /Users/sunny/work/codepod/rustpython-abi-facade/target/debug/rustpython -c 'import jsonschema_rs; print(jsonschema_rs.__all__[:5]); print(jsonschema_rs.is_valid({"type":"integer"}, 1))'`
   - blocker class: import-time symbol gap
@@ -93,6 +93,27 @@ Downstream verification helpers are local-only and are not part of the RustPytho
     - `_PyUnicode_InternFromString`
     - `_Py_NewRef`
     - `__Py_NotImplementedStruct`
-- facade/core files changed to support it:
-  - none in this task
-  - only `docs/abi-facade-status.md` was updated to record the concrete package frontier
+- follow-up maintained-branch slice:
+  - implemented/exported the exact missing symbol batch in the ABI facade:
+    - `_PyCallable_Check`
+    - `_PyDict_Copy`
+    - `_PyErr_Clear`
+    - `_PyFloat_AsDouble`
+    - `_PyFloat_Type`
+    - `_PyIter_Next`
+    - `_PyList_GetSlice`
+    - `_PyLong_AsLongLong`
+    - `_PyModule_NewObject`
+    - `_PyNumber_Long`
+    - `_PyUnicode_InternFromString`
+    - `_Py_NewRef`
+    - `__Py_NotImplementedStruct`
+  - verification after the symbol slice:
+    - `cargo check --manifest-path /Users/sunny/work/codepod/rustpython-abi-facade/Cargo.toml -p rustpython-capi -p rustpython`
+    - `cargo build --manifest-path /Users/sunny/work/codepod/rustpython-abi-facade/Cargo.toml --bin rustpython`
+    - `nm -gU /Users/sunny/work/codepod/rustpython-abi-facade/target/debug/rustpython` now exports every previously missing `jsonschema-py` ABI symbol
+  - new blocker class:
+    - runtime hang during `jsonschema_rs` extension import, no longer a `dlopen`/missing-symbol failure
+  - sharp current frontier:
+    - `PYTHONPATH=/tmp/jsonschema-abi-venv/lib/python3.14/site-packages target/debug/rustpython -v -c 'import jsonschema_rs; print("imported")'` progresses through `jsonschema_rs/__init__.py` and `typing`, then hangs while importing the extension module
+    - a live `sample` on the hanging process shows deep recursive Python/function invocation during import/module initialization, indicating the next blocker is runtime behavior inside extension import rather than missing exported ABI names

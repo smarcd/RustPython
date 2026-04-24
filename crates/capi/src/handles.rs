@@ -46,6 +46,7 @@ static mut ACTUAL_PYBOOL_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYBYTEARRAY_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYBYTES_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYDICT_TYPE: *mut PyTypeObject = ptr::null_mut();
+static mut ACTUAL_PYFLOAT_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYLIST_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYLONG_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYMODULE_TYPE: *mut PyTypeObject = ptr::null_mut();
@@ -56,6 +57,7 @@ static mut ACTUAL_PYUNICODE_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYNONESTRUCT: *mut PyObject = ptr::null_mut();
 static mut ACTUAL_PYFALSESTRUCT: *mut PyObject = ptr::null_mut();
 static mut ACTUAL_PYTRUESTRUCT: *mut PyObject = ptr::null_mut();
+static mut ACTUAL_PYNOTIMPLEMENTEDSTRUCT: *mut PyObject = ptr::null_mut();
 
 #[unsafe(export_name = "PyBaseObject_Type")]
 static mut PYBASEOBJECT_TYPE_EXPORT: ExportedStaticObject = ExportedStaticObject {
@@ -79,6 +81,11 @@ static mut PYBYTES_TYPE_EXPORT: ExportedStaticObject = ExportedStaticObject {
 };
 #[unsafe(export_name = "PyDict_Type")]
 static mut PYDICT_TYPE_EXPORT: ExportedStaticObject = ExportedStaticObject {
+    ob_refcnt: 1,
+    ob_type: ptr::null_mut(),
+};
+#[unsafe(export_name = "PyFloat_Type")]
+static mut PYFLOAT_TYPE_EXPORT: ExportedStaticObject = ExportedStaticObject {
     ob_refcnt: 1,
     ob_type: ptr::null_mut(),
 };
@@ -128,6 +135,11 @@ static mut PYTRUESTRUCT_EXPORT: ExportedStaticObject = ExportedStaticObject {
     ob_refcnt: 1,
     ob_type: ptr::null_mut(),
 };
+#[unsafe(export_name = "_Py_NotImplementedStruct")]
+static mut PYNOTIMPLEMENTEDSTRUCT_EXPORT: ExportedStaticObject = ExportedStaticObject {
+    ob_refcnt: 1,
+    ob_type: ptr::null_mut(),
+};
 
 #[allow(static_mut_refs)]
 pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
@@ -137,6 +149,7 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
         let bytearray_type = ctx.types.bytearray_type.to_owned();
         let bytes_type = ctx.types.bytes_type.to_owned();
         let dict_type = ctx.types.dict_type.to_owned();
+        let float_type = ctx.types.float_type.to_owned();
         let list_type = ctx.types.list_type.to_owned();
         let int_type = ctx.types.int_type.to_owned();
         let module_type = ctx.types.module_type.to_owned();
@@ -146,6 +159,7 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
         let none: PyObjectRef = ctx.none.to_owned().into();
         let false_value: PyObjectRef = ctx.false_value.to_owned().into();
         let true_value: PyObjectRef = ctx.true_value.to_owned().into();
+        let not_implemented: PyObjectRef = ctx.not_implemented.to_owned().into();
 
         ACTUAL_PYBASEOBJECT_TYPE =
             normalize_type_ptr(object_type.as_object().as_raw().cast_mut().cast());
@@ -155,6 +169,8 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
         ACTUAL_PYBYTES_TYPE =
             normalize_type_ptr(bytes_type.as_object().as_raw().cast_mut().cast());
         ACTUAL_PYDICT_TYPE = normalize_type_ptr(dict_type.as_object().as_raw().cast_mut().cast());
+        ACTUAL_PYFLOAT_TYPE =
+            normalize_type_ptr(float_type.as_object().as_raw().cast_mut().cast());
         ACTUAL_PYLIST_TYPE = normalize_type_ptr(list_type.as_object().as_raw().cast_mut().cast());
         ACTUAL_PYLONG_TYPE = normalize_type_ptr(int_type.as_object().as_raw().cast_mut().cast());
         ACTUAL_PYMODULE_TYPE =
@@ -168,6 +184,7 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
         ACTUAL_PYNONESTRUCT = none.as_raw().cast_mut();
         ACTUAL_PYFALSESTRUCT = false_value.as_raw().cast_mut();
         ACTUAL_PYTRUESTRUCT = true_value.as_raw().cast_mut();
+        ACTUAL_PYNOTIMPLEMENTEDSTRUCT = not_implemented.as_raw().cast_mut();
 
         let retained = retained_builtin_objects();
         let mut retained = retained.lock().unwrap();
@@ -178,6 +195,7 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
             bytearray_type.into(),
             bytes_type.into(),
             dict_type.into(),
+            float_type.into(),
             list_type.into(),
             int_type.into(),
             module_type.into(),
@@ -187,6 +205,7 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
             none,
             false_value,
             true_value,
+            not_implemented,
         ]);
 
         let pytype_export = ptr::addr_of_mut!(PYTYPE_TYPE_EXPORT).cast::<PyTypeObject>();
@@ -197,6 +216,7 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
             ptr::addr_of_mut!(PYBYTEARRAY_TYPE_EXPORT),
             ptr::addr_of_mut!(PYBYTES_TYPE_EXPORT),
             ptr::addr_of_mut!(PYDICT_TYPE_EXPORT),
+            ptr::addr_of_mut!(PYFLOAT_TYPE_EXPORT),
             ptr::addr_of_mut!(PYLIST_TYPE_EXPORT),
             ptr::addr_of_mut!(PYLONG_TYPE_EXPORT),
             ptr::addr_of_mut!(PYMODULE_TYPE_EXPORT),
@@ -209,6 +229,13 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
         PYNONESTRUCT_EXPORT.ob_type = ctx.none.class() as *const Py<PyType> as *mut PyTypeObject;
         PYFALSESTRUCT_EXPORT.ob_type = ptr::addr_of_mut!(PYBOOL_TYPE_EXPORT).cast::<PyTypeObject>();
         PYTRUESTRUCT_EXPORT.ob_type = ptr::addr_of_mut!(PYBOOL_TYPE_EXPORT).cast::<PyTypeObject>();
+        PYNOTIMPLEMENTEDSTRUCT_EXPORT.ob_type = ctx
+            .types
+            .not_implemented_type
+            .as_object()
+            .as_raw()
+            .cast_mut()
+            .cast();
     }
 }
 
@@ -319,6 +346,8 @@ pub(crate) unsafe fn exported_type_handle(actual: *mut PyTypeObject) -> *mut PyT
             ptr::addr_of_mut!(PYBYTES_TYPE_EXPORT).cast()
         } else if actual == ACTUAL_PYDICT_TYPE {
             ptr::addr_of_mut!(PYDICT_TYPE_EXPORT).cast()
+        } else if actual == ACTUAL_PYFLOAT_TYPE {
+            ptr::addr_of_mut!(PYFLOAT_TYPE_EXPORT).cast()
         } else if actual == ACTUAL_PYLIST_TYPE {
             ptr::addr_of_mut!(PYLIST_TYPE_EXPORT).cast()
         } else if actual == ACTUAL_PYLONG_TYPE {
@@ -351,6 +380,8 @@ pub(crate) unsafe fn resolve_type_handle(exported: *mut PyTypeObject) -> *mut Py
             ACTUAL_PYBYTES_TYPE
         } else if exported == ptr::addr_of_mut!(PYDICT_TYPE_EXPORT).cast() {
             ACTUAL_PYDICT_TYPE
+        } else if exported == ptr::addr_of_mut!(PYFLOAT_TYPE_EXPORT).cast() {
+            ACTUAL_PYFLOAT_TYPE
         } else if exported == ptr::addr_of_mut!(PYLIST_TYPE_EXPORT).cast() {
             ACTUAL_PYLIST_TYPE
         } else if exported == ptr::addr_of_mut!(PYLONG_TYPE_EXPORT).cast() {
@@ -375,11 +406,13 @@ pub(crate) unsafe fn exported_object_handle(actual: *mut PyObject) -> *mut PyObj
         if actual == ptr::addr_of_mut!(PYNONESTRUCT_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYFALSESTRUCT_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYTRUESTRUCT_EXPORT).cast()
+            || actual == ptr::addr_of_mut!(PYNOTIMPLEMENTEDSTRUCT_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYBASEOBJECT_TYPE_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYBOOL_TYPE_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYBYTEARRAY_TYPE_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYBYTES_TYPE_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYDICT_TYPE_EXPORT).cast()
+            || actual == ptr::addr_of_mut!(PYFLOAT_TYPE_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYLIST_TYPE_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYLONG_TYPE_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYMODULE_TYPE_EXPORT).cast()
@@ -401,6 +434,8 @@ pub(crate) unsafe fn exported_object_handle(actual: *mut PyObject) -> *mut PyObj
             ptr::addr_of_mut!(PYFALSESTRUCT_EXPORT).cast()
         } else if actual == ACTUAL_PYTRUESTRUCT {
             ptr::addr_of_mut!(PYTRUESTRUCT_EXPORT).cast()
+        } else if actual == ACTUAL_PYNOTIMPLEMENTEDSTRUCT {
+            ptr::addr_of_mut!(PYNOTIMPLEMENTEDSTRUCT_EXPORT).cast()
         } else {
             let actual_class =
                 normalize_type_ptr((*actual).class() as *const Py<PyType> as *mut PyTypeObject);
@@ -427,6 +462,8 @@ pub(crate) unsafe fn resolve_object_handle(exported: *mut PyObject) -> *mut PyOb
             ACTUAL_PYFALSESTRUCT
         } else if exported == ptr::addr_of_mut!(PYTRUESTRUCT_EXPORT).cast() {
             ACTUAL_PYTRUESTRUCT
+        } else if exported == ptr::addr_of_mut!(PYNOTIMPLEMENTEDSTRUCT_EXPORT).cast() {
+            ACTUAL_PYNOTIMPLEMENTEDSTRUCT
         } else if exported == ptr::addr_of_mut!(PYBASEOBJECT_TYPE_EXPORT).cast() {
             ACTUAL_PYBASEOBJECT_TYPE.cast()
         } else if exported == ptr::addr_of_mut!(PYBOOL_TYPE_EXPORT).cast() {
@@ -437,6 +474,8 @@ pub(crate) unsafe fn resolve_object_handle(exported: *mut PyObject) -> *mut PyOb
             ACTUAL_PYBYTES_TYPE.cast()
         } else if exported == ptr::addr_of_mut!(PYDICT_TYPE_EXPORT).cast() {
             ACTUAL_PYDICT_TYPE.cast()
+        } else if exported == ptr::addr_of_mut!(PYFLOAT_TYPE_EXPORT).cast() {
+            ACTUAL_PYFLOAT_TYPE.cast()
         } else if exported == ptr::addr_of_mut!(PYLIST_TYPE_EXPORT).cast() {
             ACTUAL_PYLIST_TYPE.cast()
         } else if exported == ptr::addr_of_mut!(PYLONG_TYPE_EXPORT).cast() {
