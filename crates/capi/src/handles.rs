@@ -1,9 +1,11 @@
 use crate::PyObject;
 use crate::object::PyTypeObject;
+use core::ffi::{c_char, c_ulong, c_void};
 use core::ptr;
 use rustpython_vm::{AsObject, Py, PyObjectRef};
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::vm::Context;
+use rustpython_vm::vm::thread::try_with_current_vm;
 use std::alloc::{Layout, alloc_zeroed};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -18,6 +20,36 @@ struct CApiObjectHeader {
 struct ExportedStaticObject {
     ob_refcnt: isize,
     ob_type: *mut PyTypeObject,
+}
+
+#[repr(C)]
+struct CApiVarObjectHeader {
+    ob_base: CApiObjectHeader,
+    ob_size: isize,
+}
+
+#[repr(C)]
+struct CApiTypeObjectPrefix {
+    ob_base: CApiVarObjectHeader,
+    tp_name: *const c_char,
+    tp_basicsize: isize,
+    tp_itemsize: isize,
+    tp_dealloc: *mut c_void,
+    tp_vectorcall_offset: isize,
+    tp_getattr: *mut c_void,
+    tp_setattr: *mut c_void,
+    tp_as_async: *mut c_void,
+    tp_repr: *mut c_void,
+    tp_as_number: *mut c_void,
+    tp_as_sequence: *mut c_void,
+    tp_as_mapping: *mut c_void,
+    tp_hash: *mut c_void,
+    tp_call: *mut c_void,
+    tp_str: *mut c_void,
+    tp_getattro: *mut c_void,
+    tp_setattro: *mut c_void,
+    tp_as_buffer: *mut c_void,
+    tp_flags: c_ulong,
 }
 
 #[derive(Default)]
@@ -41,6 +73,15 @@ fn normalize_type_ptr(ptr: *mut PyTypeObject) -> *mut PyTypeObject {
     ptr.map_addr(|addr| addr & !1)
 }
 
+const PY_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
+const PY_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
+const PY_TPFLAGS_TUPLE_SUBCLASS: c_ulong = 1 << 26;
+const PY_TPFLAGS_BYTES_SUBCLASS: c_ulong = 1 << 27;
+const PY_TPFLAGS_UNICODE_SUBCLASS: c_ulong = 1 << 28;
+const PY_TPFLAGS_DICT_SUBCLASS: c_ulong = 1 << 29;
+const PY_TPFLAGS_BASE_EXC_SUBCLASS: c_ulong = 1 << 30;
+const PY_TPFLAGS_TYPE_SUBCLASS: c_ulong = 1 << 31;
+
 static mut ACTUAL_PYBASEOBJECT_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYBOOL_TYPE: *mut PyTypeObject = ptr::null_mut();
 static mut ACTUAL_PYBYTEARRAY_TYPE: *mut PyTypeObject = ptr::null_mut();
@@ -58,6 +99,41 @@ static mut ACTUAL_PYNONESTRUCT: *mut PyObject = ptr::null_mut();
 static mut ACTUAL_PYFALSESTRUCT: *mut PyObject = ptr::null_mut();
 static mut ACTUAL_PYTRUESTRUCT: *mut PyObject = ptr::null_mut();
 static mut ACTUAL_PYNOTIMPLEMENTEDSTRUCT: *mut PyObject = ptr::null_mut();
+
+fn compute_exported_type_flags(actual: *mut PyTypeObject) -> c_ulong {
+    let actual = normalize_type_ptr(actual);
+    let ty = unsafe { &*actual };
+    let mut flags = ty.slots.flags.bits();
+
+    let _ = try_with_current_vm(|vm| {
+        if ty.fast_issubclass(vm.ctx.types.int_type) {
+            flags |= PY_TPFLAGS_LONG_SUBCLASS;
+        }
+        if ty.fast_issubclass(vm.ctx.types.list_type) {
+            flags |= PY_TPFLAGS_LIST_SUBCLASS;
+        }
+        if ty.fast_issubclass(vm.ctx.types.tuple_type) {
+            flags |= PY_TPFLAGS_TUPLE_SUBCLASS;
+        }
+        if ty.fast_issubclass(vm.ctx.types.bytes_type) {
+            flags |= PY_TPFLAGS_BYTES_SUBCLASS;
+        }
+        if ty.fast_issubclass(vm.ctx.types.str_type) {
+            flags |= PY_TPFLAGS_UNICODE_SUBCLASS;
+        }
+        if ty.fast_issubclass(vm.ctx.types.dict_type) {
+            flags |= PY_TPFLAGS_DICT_SUBCLASS;
+        }
+        if ty.fast_issubclass(vm.ctx.exceptions.base_exception_type) {
+            flags |= PY_TPFLAGS_BASE_EXC_SUBCLASS;
+        }
+        if ty.fast_issubclass(vm.ctx.types.type_type) {
+            flags |= PY_TPFLAGS_TYPE_SUBCLASS;
+        }
+    });
+
+    flags
+}
 
 #[unsafe(export_name = "PyBaseObject_Type")]
 static mut PYBASEOBJECT_TYPE_EXPORT: ExportedStaticObject = ExportedStaticObject {
@@ -110,9 +186,33 @@ static mut PYTUPLE_TYPE_EXPORT: ExportedStaticObject = ExportedStaticObject {
     ob_type: ptr::null_mut(),
 };
 #[unsafe(export_name = "PyType_Type")]
-static mut PYTYPE_TYPE_EXPORT: ExportedStaticObject = ExportedStaticObject {
-    ob_refcnt: 1,
-    ob_type: ptr::null_mut(),
+static mut PYTYPE_TYPE_EXPORT: CApiTypeObjectPrefix = CApiTypeObjectPrefix {
+    ob_base: CApiVarObjectHeader {
+        ob_base: CApiObjectHeader {
+            ob_refcnt: 1,
+            ob_type: ptr::null_mut(),
+        },
+        ob_size: 0,
+    },
+    tp_name: ptr::null(),
+    tp_basicsize: 0,
+    tp_itemsize: 0,
+    tp_dealloc: ptr::null_mut(),
+    tp_vectorcall_offset: 0,
+    tp_getattr: ptr::null_mut(),
+    tp_setattr: ptr::null_mut(),
+    tp_as_async: ptr::null_mut(),
+    tp_repr: ptr::null_mut(),
+    tp_as_number: ptr::null_mut(),
+    tp_as_sequence: ptr::null_mut(),
+    tp_as_mapping: ptr::null_mut(),
+    tp_hash: ptr::null_mut(),
+    tp_call: ptr::null_mut(),
+    tp_str: ptr::null_mut(),
+    tp_getattro: ptr::null_mut(),
+    tp_setattro: ptr::null_mut(),
+    tp_as_buffer: ptr::null_mut(),
+    tp_flags: 0,
 };
 #[unsafe(export_name = "PyUnicode_Type")]
 static mut PYUNICODE_TYPE_EXPORT: ExportedStaticObject = ExportedStaticObject {
@@ -155,6 +255,7 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
         let module_type = ctx.types.module_type.to_owned();
         let tuple_type = ctx.types.tuple_type.to_owned();
         let type_type = ctx.types.type_type.to_owned();
+        let type_type_flags = type_type.slots.flags.bits() | PY_TPFLAGS_TYPE_SUBCLASS;
         let str_type = ctx.types.str_type.to_owned();
         let none: PyObjectRef = ctx.none.to_owned().into();
         let false_value: PyObjectRef = ctx.false_value.to_owned().into();
@@ -209,7 +310,8 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
         ]);
 
         let pytype_export = ptr::addr_of_mut!(PYTYPE_TYPE_EXPORT).cast::<PyTypeObject>();
-        PYTYPE_TYPE_EXPORT.ob_type = pytype_export;
+        PYTYPE_TYPE_EXPORT.ob_base.ob_base.ob_type = pytype_export;
+        PYTYPE_TYPE_EXPORT.tp_flags = type_type_flags;
         for exported in [
             ptr::addr_of_mut!(PYBASEOBJECT_TYPE_EXPORT),
             ptr::addr_of_mut!(PYBOOL_TYPE_EXPORT),
@@ -226,7 +328,13 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
             (*exported).ob_type = pytype_export;
         }
 
-        PYNONESTRUCT_EXPORT.ob_type = ctx.none.class() as *const Py<PyType> as *mut PyTypeObject;
+        PYNONESTRUCT_EXPORT.ob_type = ctx
+            .none
+            .class()
+            .as_object()
+            .as_raw()
+            .cast_mut()
+            .cast();
         PYFALSESTRUCT_EXPORT.ob_type = ptr::addr_of_mut!(PYBOOL_TYPE_EXPORT).cast::<PyTypeObject>();
         PYTRUESTRUCT_EXPORT.ob_type = ptr::addr_of_mut!(PYBOOL_TYPE_EXPORT).cast::<PyTypeObject>();
         PYNOTIMPLEMENTEDSTRUCT_EXPORT.ob_type = ctx
@@ -241,19 +349,41 @@ pub(crate) unsafe fn init_exported_builtin_objects(ctx: &Context) {
 
 unsafe fn create_wrapper(actual: *mut PyObject, min_size: usize) -> *mut PyObject {
     let header_size = core::mem::size_of::<CApiObjectHeader>();
-    let size = min_size.max(header_size);
-    let align = core::mem::align_of::<CApiObjectHeader>();
+    let is_type = unsafe { (&*actual).downcast_ref::<PyType>().is_some() };
+    let type_prefix_size = core::mem::size_of::<CApiTypeObjectPrefix>();
+    let size = if is_type {
+        min_size.max(type_prefix_size)
+    } else {
+        min_size.max(header_size)
+    };
+    let align = if is_type {
+        core::mem::align_of::<CApiTypeObjectPrefix>()
+    } else {
+        core::mem::align_of::<CApiObjectHeader>()
+    };
     let layout = Layout::from_size_align(size, align).expect("valid wrapper layout");
     let wrapper = unsafe { alloc_zeroed(layout) };
     if wrapper.is_null() {
         return core::ptr::null_mut();
     }
 
-    let actual_type = unsafe { (*actual).class() as *const Py<PyType> as *mut PyTypeObject };
+    let actual_type = unsafe {
+        (*actual)
+            .class()
+            .as_object()
+            .as_raw()
+            .cast_mut()
+            .cast::<PyTypeObject>()
+    };
     let wrapper = wrapper.cast::<CApiObjectHeader>();
     unsafe {
         (*wrapper).ob_refcnt = 1;
         (*wrapper).ob_type = exported_type_handle(actual_type);
+        if is_type {
+            let type_wrapper = wrapper.cast::<CApiTypeObjectPrefix>();
+            (*type_wrapper).ob_base.ob_size = 0;
+            (*type_wrapper).tp_flags = compute_exported_type_flags(actual_type);
+        }
     }
 
     let wrapper_ptr = wrapper.cast::<PyObject>();
@@ -310,6 +440,10 @@ pub(crate) unsafe fn decref_wrapper(op: *mut PyObject) -> bool {
         inner as *mut PyObject
     };
 
+    if unsafe { (&*inner).downcast_ref::<PyType>() }.is_some() {
+        return true;
+    }
+
     let should_free = unsafe {
         let header = op as *mut CApiObjectHeader;
         (*header).ob_refcnt -= 1;
@@ -361,9 +495,23 @@ pub(crate) unsafe fn exported_type_handle(actual: *mut PyTypeObject) -> *mut PyT
         } else if actual == ACTUAL_PYUNICODE_TYPE {
             ptr::addr_of_mut!(PYUNICODE_TYPE_EXPORT).cast()
         } else {
-            actual
+            unsafe { exported_object_wrapper(actual.cast(), core::mem::size_of::<CApiTypeObjectPrefix>()) }
+                .cast()
         }
     }
+}
+
+pub(crate) unsafe fn exported_type_flags(exported: *mut PyTypeObject) -> Option<c_ulong> {
+    let exported = normalize_type_ptr(exported);
+    if exported == ptr::addr_of_mut!(PYTYPE_TYPE_EXPORT).cast() {
+        return Some(unsafe { PYTYPE_TYPE_EXPORT.tp_flags });
+    }
+    let maps = wrapper_maps().lock().unwrap();
+    let inner = maps.wrapper_to_inner.get(&(exported as usize)).copied()?;
+    drop(maps);
+    Some(compute_exported_type_flags(
+        (inner as *mut PyObject).cast::<PyTypeObject>(),
+    ))
 }
 
 #[inline]
@@ -395,7 +543,12 @@ pub(crate) unsafe fn resolve_type_handle(exported: *mut PyTypeObject) -> *mut Py
         } else if exported == ptr::addr_of_mut!(PYUNICODE_TYPE_EXPORT).cast() {
             ACTUAL_PYUNICODE_TYPE
         } else {
-            exported
+            let maps = wrapper_maps().lock().unwrap();
+            maps.wrapper_to_inner
+                .get(&(exported as usize))
+                .copied()
+                .map(|ptr| normalize_type_ptr(ptr as *mut PyTypeObject))
+                .unwrap_or(exported)
         }
     }
 }
@@ -403,6 +556,9 @@ pub(crate) unsafe fn resolve_type_handle(exported: *mut PyTypeObject) -> *mut Py
 #[inline]
 pub(crate) unsafe fn exported_object_handle(actual: *mut PyObject) -> *mut PyObject {
     unsafe {
+        if actual.is_null() {
+            return ptr::null_mut();
+        }
         if actual == ptr::addr_of_mut!(PYNONESTRUCT_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYFALSESTRUCT_EXPORT).cast()
             || actual == ptr::addr_of_mut!(PYTRUESTRUCT_EXPORT).cast()
@@ -437,17 +593,31 @@ pub(crate) unsafe fn exported_object_handle(actual: *mut PyObject) -> *mut PyObj
         } else if actual == ACTUAL_PYNOTIMPLEMENTEDSTRUCT {
             ptr::addr_of_mut!(PYNOTIMPLEMENTEDSTRUCT_EXPORT).cast()
         } else {
-            let actual_class =
-                normalize_type_ptr((*actual).class() as *const Py<PyType> as *mut PyTypeObject);
-            if actual_class == ACTUAL_PYTYPE_TYPE {
-                exported_type_handle(actual.cast()).cast()
+            let actual_class = normalize_type_ptr(
+                (*actual)
+                    .class()
+                    .as_object()
+                    .as_raw()
+                    .cast_mut()
+                    .cast::<PyTypeObject>(),
+            );
+            let is_type_object = actual_class == ACTUAL_PYTYPE_TYPE
+                || (!ACTUAL_PYTYPE_TYPE.is_null() && (&*actual_class).is_subtype(&*ACTUAL_PYTYPE_TYPE));
+            if is_type_object {
+                let exported = exported_type_handle(actual.cast());
+                if exported == actual.cast() {
+                    exported_object_wrapper(actual, core::mem::size_of::<usize>() * 2)
+                } else {
+                    exported.cast()
+                }
             } else {
                 let maps = wrapper_maps().lock().unwrap();
-                maps.inner_to_wrapper
-                    .get(&(actual as usize))
-                    .copied()
-                    .map(|wrapper| wrapper as *mut PyObject)
-                    .unwrap_or(actual)
+                if let Some(wrapper) = maps.inner_to_wrapper.get(&(actual as usize)).copied() {
+                    wrapper as *mut PyObject
+                } else {
+                    drop(maps);
+                    exported_object_wrapper(actual, core::mem::size_of::<usize>() * 2)
+                }
             }
         }
     }

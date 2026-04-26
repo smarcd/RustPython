@@ -1,6 +1,6 @@
 use crate::handles::{
-    exported_object_handle, exported_object_wrapper, exported_type_handle, resolve_object_handle,
-    resolve_type_handle,
+    exported_object_handle, exported_object_wrapper, exported_type_flags, exported_type_handle,
+    resolve_object_handle, resolve_type_handle,
 };
 use crate::methodobject::{PyMethodDef as CApiMethodDef, build_tp_method};
 use crate::util::owned_from_exported_new_ref;
@@ -31,7 +31,13 @@ pub type PyTypeObject = Py<PyType>;
 pub extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
     // SAFETY: The caller must guarantee that `op` is a valid pointer to a `PyObject`.
     unsafe {
-        let actual = (*resolve_object_handle(op)).class() as *const Py<PyType> as *mut PyTypeObject;
+        let resolved = resolve_object_handle(op);
+        let actual = (*resolved)
+            .class()
+            .as_object()
+            .as_raw()
+            .cast_mut()
+            .cast::<PyTypeObject>();
         exported_type_handle(actual).cast_const()
     }
 }
@@ -48,40 +54,59 @@ pub extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int 
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
-    let ctx = Context::genesis();
-    let zoo = &ctx.types;
-    let exp_zoo = &ctx.exceptions;
+    with_vm(|vm| {
+        if let Some(flags) = unsafe { exported_type_flags(ptr.cast_mut()) } {
+            return flags;
+        }
 
-    // SAFETY: The caller must guarantee that `ptr` is a valid pointer to a `PyType` object.
-    let ty = unsafe { &*resolve_type_handle(ptr.cast_mut()) };
-    let mut flags = ty.slots.flags.bits();
+        // SAFETY: The caller must guarantee that `ptr` is a valid pointer to a `PyType` object.
+        let actual = unsafe { resolve_type_handle(ptr.cast_mut()) };
+        let ty = unsafe { &*actual };
+        let mut flags = ty.slots.flags.bits();
 
-    if ty.is_subtype(zoo.int_type) {
-        flags |= PY_TPFLAGS_LONG_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.list_type) {
-        flags |= PY_TPFLAGS_LIST_SUBCLASS
-    }
-    if ty.is_subtype(zoo.tuple_type) {
-        flags |= PY_TPFLAGS_TUPLE_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.bytes_type) {
-        flags |= PY_TPFLAGS_BYTES_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.str_type) {
-        flags |= PY_TPFLAGS_UNICODE_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.dict_type) {
-        flags |= PY_TPFLAGS_DICT_SUBCLASS;
-    }
-    if ty.is_subtype(exp_zoo.base_exception_type) {
-        flags |= PY_TPFLAGS_BASE_EXC_SUBCLASS;
-    }
-    if ty.is_subtype(zoo.type_type) {
-        flags |= PY_TPFLAGS_TYPE_SUBCLASS;
-    }
+        if actual == vm.ctx.types.bool_type.as_object().as_raw().cast_mut().cast::<PyTypeObject>()
+            || actual
+                == vm
+                    .ctx
+                    .types
+                    .int_type
+                    .as_object()
+                    .as_raw()
+                    .cast_mut()
+                    .cast::<PyTypeObject>()
+        {
+            flags |= PY_TPFLAGS_LONG_SUBCLASS;
+        }
+        if actual == vm.ctx.types.list_type.as_object().as_raw().cast_mut().cast::<PyTypeObject>() {
+            flags |= PY_TPFLAGS_LIST_SUBCLASS;
+        }
+        if actual == vm.ctx.types.tuple_type.as_object().as_raw().cast_mut().cast::<PyTypeObject>() {
+            flags |= PY_TPFLAGS_TUPLE_SUBCLASS;
+        }
+        if actual == vm.ctx.types.bytes_type.as_object().as_raw().cast_mut().cast::<PyTypeObject>() {
+            flags |= PY_TPFLAGS_BYTES_SUBCLASS;
+        }
+        if actual == vm.ctx.types.str_type.as_object().as_raw().cast_mut().cast::<PyTypeObject>() {
+            flags |= PY_TPFLAGS_UNICODE_SUBCLASS;
+        }
+        if actual == vm.ctx.types.dict_type.as_object().as_raw().cast_mut().cast::<PyTypeObject>() {
+            flags |= PY_TPFLAGS_DICT_SUBCLASS;
+        }
+        if actual
+            == vm
+                .ctx
+                .types
+                .type_type
+                .as_object()
+                .as_raw()
+                .cast_mut()
+                .cast::<PyTypeObject>()
+        {
+            flags |= PY_TPFLAGS_TYPE_SUBCLASS;
+        }
 
-    flags
+        flags
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -120,9 +145,30 @@ pub extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) -> *mut
 #[unsafe(no_mangle)]
 pub extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
     with_vm(move |_vm| {
-        let a = unsafe { &*resolve_type_handle(a.cast_mut()) };
-        let b = unsafe { &*resolve_type_handle(b.cast_mut()) };
+        let a_raw = unsafe { resolve_type_handle(a.cast_mut()) };
+        let b_raw = unsafe { resolve_type_handle(b.cast_mut()) };
+        let a = unsafe { &*a_raw };
+        let b = unsafe { &*b_raw };
         Ok(a.is_subtype(b))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyExceptionClass_Check(op: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*resolve_object_handle(op) };
+        let Some(ty) = obj.downcast_ref::<PyType>() else {
+            return false;
+        };
+        ty.fast_issubclass(vm.ctx.exceptions.base_exception_type)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyExceptionInstance_Check(op: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*resolve_object_handle(op) };
+        obj.class().fast_issubclass(vm.ctx.exceptions.base_exception_type)
     })
 }
 
@@ -521,9 +567,15 @@ fn native_tp_new(ty: rustpython_vm::builtins::PyTypeRef, args: rustpython_vm::fu
     let new_func = ty.get_type_data::<TypeVTable>().unwrap().new_func.unwrap();
     let kwargs = vm.ctx.new_dict();
     for (name, value) in &args.kwargs {
-        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value.clone(), vm)?;
+        let value = unsafe { (&*resolve_object_handle(value.as_object().as_raw().cast_mut())).to_owned() };
+        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value, vm)?;
     }
-    let args = vm.ctx.new_tuple(args.args);
+    let args = vm.ctx.new_tuple(
+        args.args
+            .into_iter()
+            .map(|value| unsafe { (&*resolve_object_handle(value.as_object().as_raw().cast_mut())).to_owned() })
+            .collect(),
+    );
     let result = unsafe {
         new_func(
             (&*ty) as *const _ as *mut _,
@@ -547,9 +599,15 @@ fn native_tp_init(obj: PyObjectRef, args: rustpython_vm::function::FuncArgs, vm:
         .unwrap();
     let kwargs = vm.ctx.new_dict();
     for (name, value) in &args.kwargs {
-        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value.clone(), vm)?;
+        let value = unsafe { (&*resolve_object_handle(value.as_object().as_raw().cast_mut())).to_owned() };
+        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value, vm)?;
     }
-    let args = vm.ctx.new_tuple(args.args);
+    let args = vm.ctx.new_tuple(
+        args.args
+            .into_iter()
+            .map(|value| unsafe { (&*resolve_object_handle(value.as_object().as_raw().cast_mut())).to_owned() })
+            .collect(),
+    );
     let rc = unsafe {
         let exported_obj = exported_object_handle(obj.as_object().as_raw().cast_mut());
         init_func(
@@ -578,9 +636,15 @@ fn native_tp_call(obj: &PyObject, args: rustpython_vm::function::FuncArgs, vm: &
         .expect("native_tp_call called without a registered call slot");
     let kwargs = vm.ctx.new_dict();
     for (name, value) in &args.kwargs {
-        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value.clone(), vm)?;
+        let value = unsafe { (&*resolve_object_handle(value.as_object().as_raw().cast_mut())).to_owned() };
+        kwargs.set_item(&*vm.ctx.new_str(name.clone()), value, vm)?;
     }
-    let args = vm.ctx.new_tuple(args.args);
+    let args = vm.ctx.new_tuple(
+        args.args
+            .into_iter()
+            .map(|value| unsafe { (&*resolve_object_handle(value.as_object().as_raw().cast_mut())).to_owned() })
+            .collect(),
+    );
     let slf_ptr = unsafe { exported_object_handle(obj.as_raw().cast_mut()) };
     let result = unsafe {
         call_func(
@@ -1472,23 +1536,31 @@ pub extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
                 }
                 SlotAccessor::TpGetset => {
                     let start = slot.pfunc.cast::<PyGetSetDef>();
-                    let mut end = start;
-                    while unsafe { !(*end).name.is_null() } {
-                        end = unsafe { end.add(1) }
+                    if start.is_null() {
+                        attributes = &[];
+                    } else {
+                        let mut end = start;
+                        while unsafe { !(*end).name.is_null() } {
+                            end = unsafe { end.add(1) }
+                        }
+                        attributes = unsafe {
+                            core::slice::from_raw_parts(start, end.offset_from(start) as usize)
+                        };
                     }
-                    attributes = unsafe {
-                        core::slice::from_raw_parts(start, end.offset_from(start) as usize)
-                    };
                 }
                 SlotAccessor::TpMethods => {
                     let start = slot.pfunc.cast::<CApiMethodDef>();
-                    let mut end = start;
-                    while unsafe { !(*end).ml_name.is_null() } {
-                        end = unsafe { end.add(1) }
+                    if start.is_null() {
+                        methods = &[];
+                    } else {
+                        let mut end = start;
+                        while unsafe { !(*end).ml_name.is_null() } {
+                            end = unsafe { end.add(1) }
+                        }
+                        methods = unsafe {
+                            core::slice::from_raw_parts(start, end.offset_from(start) as usize)
+                        };
                     }
-                    methods = unsafe {
-                        core::slice::from_raw_parts(start, end.offset_from(start) as usize)
-                    };
                 }
                 SlotAccessor::TpNew => {
                     vtable.new_func = Some(unsafe { core::mem::transmute(slot.pfunc) });
@@ -2395,7 +2467,29 @@ pub extern "C" fn PyObject_GetAttr(obj: *mut PyObject, name: *mut PyObject) -> *
     with_vm(|vm| {
         let obj = unsafe { &*resolve_object_handle(obj) };
         let name = unsafe { &*resolve_object_handle(name) }.try_downcast_ref::<PyStr>(vm)?;
-        obj.get_attr(name, vm)
+        let name_text = name.to_string_lossy();
+        let value = if let Some(module) = obj.downcast_ref::<rustpython_vm::builtins::PyModule>() {
+            if name_text.as_ref() == "__all__" {
+                let dict = module.dict();
+                match dict.get_item_opt(name, vm)? {
+                    Some(value) => value,
+                    None => {
+                        return Err(vm.new_attribute_error("__all__"));
+                    }
+                }
+            } else {
+                if let Some(value) = module.dict().get_item_opt(name, vm)? {
+                    value
+                } else {
+                    obj.get_attr(name, vm)?
+                }
+            }
+        } else {
+            obj.get_attr(name, vm)?
+        };
+        Ok(unsafe {
+            exported_object_wrapper(value.as_object().as_raw().cast_mut(), core::mem::size_of::<usize>() * 2)
+        })
     })
 }
 
@@ -2411,7 +2505,10 @@ pub extern "C" fn PyObject_GetAttrString(
                 .to_str()
                 .expect("attribute name must be valid UTF-8")
         };
-        obj.get_attr(name, vm)
+        let value = obj.get_attr(name, vm)?;
+        Ok(unsafe {
+            exported_object_wrapper(value.as_object().as_raw().cast_mut(), core::mem::size_of::<usize>() * 2)
+        })
     })
 }
 

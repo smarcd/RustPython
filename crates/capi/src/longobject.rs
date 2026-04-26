@@ -1,3 +1,4 @@
+use crate::handles::resolve_object_handle;
 use crate::{PyObject, with_vm};
 use core::ffi::{c_long, c_longlong, c_ulong, c_ulonglong};
 use rustpython_vm::PyResult;
@@ -36,8 +37,7 @@ pub extern "C" fn PyLong_FromUnsignedLongLong(value: c_ulonglong) -> *mut PyObje
 #[unsafe(no_mangle)]
 pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
     with_vm::<PyResult<c_long>, _>(|vm| {
-        // SAFETY: non-null checked above; caller promises a valid PyObject pointer.
-        let obj_ref = unsafe { &*obj };
+        let obj_ref = unsafe { &*resolve_object_handle(obj) };
         let int_obj = obj_ref
             .to_owned()
             .try_downcast::<PyInt>(vm)
@@ -53,7 +53,7 @@ pub extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulonglong {
     with_vm::<PyResult<c_ulonglong>, _>(|vm| {
-        let obj_ref = unsafe { &*obj };
+        let obj_ref = unsafe { &*resolve_object_handle(obj) };
         let int_obj = obj_ref
             .to_owned()
             .try_downcast::<PyInt>(vm)
@@ -68,7 +68,7 @@ pub extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulonglong {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyLong_AsLongLong(obj: *mut PyObject) -> c_longlong {
     with_vm::<PyResult<c_longlong>, _>(|vm| {
-        let obj_ref = unsafe { &*obj };
+        let obj_ref = unsafe { &*resolve_object_handle(obj) };
         let int_obj = obj_ref
             .to_owned()
             .try_downcast::<PyInt>(vm)

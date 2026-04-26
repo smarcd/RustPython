@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use crate::handles::{exported_object_handle, resolve_object_handle};
+use crate::handles::{exported_object_wrapper, resolve_object_handle};
 use core::ffi::c_int;
 use core::ptr::NonNull;
 use rustpython_vm::AsObject;
@@ -29,7 +29,9 @@ pub extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> *mut Py
             .get(index as usize)
             .ok_or_else(|| vm.new_index_error(format!("list index out of range: {index}")))
             .map(ToOwned::to_owned)
-            .map(|obj| unsafe { exported_object_handle(obj.into_raw().as_ptr()) })
+            .map(|obj| unsafe {
+                exported_object_wrapper(obj.into_raw().as_ptr(), core::mem::size_of::<usize>() * 2)
+            })
     })
 }
 
@@ -41,7 +43,12 @@ pub extern "C" fn PyList_GetItem(obj: *mut PyObject, index: isize) -> *mut PyObj
         let result = items
             .get(index as usize)
             .ok_or_else(|| vm.new_index_error(format!("list index out of range: {index}")))?;
-        Ok(unsafe { exported_object_handle(result.as_object().as_raw().cast_mut()) })
+        Ok(unsafe {
+            exported_object_wrapper(
+                result.as_object().as_raw().cast_mut(),
+                core::mem::size_of::<usize>() * 2,
+            )
+        })
     })
 }
 
@@ -49,8 +56,7 @@ pub extern "C" fn PyList_GetItem(obj: *mut PyObject, index: isize) -> *mut PyObj
 pub extern "C" fn PyList_Append(list: *mut PyObject, item: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let list = unsafe { &*resolve_object_handle(list) }.try_downcast_ref::<PyList>(vm)?;
-        let item =
-            unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(resolve_object_handle(item))) };
+        let item = unsafe { &*resolve_object_handle(item) }.to_owned();
         list.borrow_vec_mut().push(item);
         Ok(())
     })

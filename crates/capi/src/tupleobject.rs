@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use crate::handles::{exported_object_handle, resolve_object_handle};
+use crate::handles::{exported_object_wrapper, resolve_object_handle};
 use rustpython_vm::AsObject;
 use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyTuple;
@@ -52,8 +52,11 @@ pub extern "C" fn PyTuple_GetItem(tuple: *mut PyObject, pos: isize) -> *mut PyOb
             .and_then(|index: usize| tuple.get(index))
             .ok_or_else(|| vm.new_index_error("tuple index out of range"))?;
 
-        //Return borrowed reference
-        Ok(unsafe { exported_object_handle(result.as_raw().cast_mut()) })
+        // Return a wrapper-backed borrowed reference so direct Py_TYPE reads
+        // on tuple elements see facade-exported type pointers.
+        Ok(unsafe {
+            exported_object_wrapper(result.as_raw().cast_mut(), core::mem::size_of::<usize>() * 2)
+        })
     })
 }
 

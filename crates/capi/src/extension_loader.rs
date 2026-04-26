@@ -1,5 +1,7 @@
 use crate::PyObject;
+use crate::handles::exported_object_wrapper;
 use crate::pystate::with_vm;
+use core::ptr;
 use alloc::ffi::CString;
 use core::{
     ffi::{CStr, c_char, c_int, c_void},
@@ -11,7 +13,7 @@ use libloading::os::unix::Library as UnixLibrary;
 use rustpython_vm::{
     AsObject, PyObjectRef, PyResult, builtins::{PyStrRef, PyUtf8StrRef},
 };
-use std::sync::{Mutex, OnceLock};
+use std::{cell::RefCell, sync::{Mutex, OnceLock}};
 
 const PY_MOD_CREATE: c_int = 1;
 const PY_MOD_EXEC: c_int = 2;
@@ -56,9 +58,14 @@ fn dynamic_libs() -> &'static Mutex<Vec<Library>> {
     DYNAMIC_LIBS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+std::thread_local! {
+    static LAST_DYNAMIC_ERROR: RefCell<Option<PyObjectRef>> = RefCell::new(None);
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| -> PyResult<PyObjectRef> {
+    with_vm(|vm| -> *mut core::ffi::c_void {
+        let result: PyResult<PyObjectRef> = (|| {
         let spec = unsafe { &*spec }.to_owned();
         let name: PyUtf8StrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
         let origin: PyStrRef = spec.get_attr("origin", vm)?.try_into_value(vm)?;
@@ -108,7 +115,7 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
         }
 
         let raw_def = unsafe { &*raw.cast::<RawPyModuleDef>() };
-        let module_name = if raw_def.m_name.is_null() {
+        let raw_module_name = if raw_def.m_name.is_null() {
             name.as_str()
         } else {
             unsafe { CStr::from_ptr(raw_def.m_name) }
@@ -125,7 +132,7 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
             ))
         };
 
-        let module = vm.new_module(module_name, vm.ctx.new_dict(), doc);
+        let module = vm.new_module(name.as_str(), vm.ctx.new_dict(), doc);
         let sys_modules = vm.sys_module.get_attr("modules", vm)?;
         sys_modules.set_item(name.as_pystr(), module.clone().into(), vm)?;
 
@@ -141,7 +148,13 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
                 }
                 PY_MOD_EXEC => {
                     let exec: RawPyModuleExec = unsafe { mem::transmute(current.value) };
-                    let rc = unsafe { exec(module.as_object().as_raw().cast_mut()) };
+                    let module_handle = unsafe {
+                        exported_object_wrapper(
+                            module.as_object().as_raw().cast_mut(),
+                            core::mem::size_of::<usize>() * 2,
+                        )
+                    };
+                    let rc = unsafe { exec(module_handle) };
                     if rc != 0 {
                         let err_symbol_name = CString::new("PyErr_GetRaisedException").unwrap();
                         let err_symbol =
@@ -170,7 +183,17 @@ pub extern "C" fn RustPython_CreateDynamicExtension(spec: *mut PyObject) -> *mut
 
         dynamic_libs().lock().unwrap().push(lib);
         Ok(module.into())
+        })();
+
+        match result {
+            Ok(module) => module.into_raw().as_ptr().cast(),
+            Err(err) => {
+                LAST_DYNAMIC_ERROR.with(|slot| *slot.borrow_mut() = Some(err.into()));
+                ptr::null_mut()
+            }
+        }
     })
+    .cast()
 }
 
 #[unsafe(no_mangle)]
@@ -180,11 +203,10 @@ pub extern "C" fn RustPython_ExecDynamicExtension(_module: *mut PyObject) -> c_i
 
 #[unsafe(no_mangle)]
 pub extern "C" fn RustPython_TakeDynamicExtensionError() -> *mut PyObject {
-    let symbol_name = CString::new("PyErr_GetRaisedException").unwrap();
-    let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, symbol_name.as_ptr()) };
-    if symbol.is_null() {
-        return core::ptr::null_mut();
-    }
-    let get_exc: unsafe extern "C" fn() -> *mut PyObject = unsafe { mem::transmute(symbol) };
-    unsafe { get_exc() }
+    LAST_DYNAMIC_ERROR.with(|slot| {
+        slot.borrow_mut()
+            .take()
+            .map(|err| err.into_raw().as_ptr())
+            .unwrap_or(ptr::null_mut())
+    })
 }

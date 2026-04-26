@@ -1,3 +1,4 @@
+use crate::handles::resolve_object_handle;
 use crate::{PyObject, with_vm};
 use core::ffi::c_char;
 use rustpython_vm::builtins::PyBytes;
@@ -18,7 +19,7 @@ pub extern "C" fn PyBytes_FromStringAndSize(bytes: *mut c_char, len: isize) -> *
 #[unsafe(no_mangle)]
 pub extern "C" fn PyBytes_Size(bytes: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let bytes = unsafe { &*bytes }.try_downcast_ref::<PyBytes>(vm)?;
+        let bytes = unsafe { &*resolve_object_handle(bytes) }.try_downcast_ref::<PyBytes>(vm)?;
         Ok(bytes.as_bytes().len())
     })
 }
@@ -26,7 +27,7 @@ pub extern "C" fn PyBytes_Size(bytes: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyBytes_AsString(bytes: *mut PyObject) -> *mut c_char {
     with_vm(|vm| {
-        let bytes = unsafe { &*bytes }.try_downcast_ref::<PyBytes>(vm)?;
+        let bytes = unsafe { &*resolve_object_handle(bytes) }.try_downcast_ref::<PyBytes>(vm)?;
         Ok(bytes.as_bytes().as_ptr())
     })
 }

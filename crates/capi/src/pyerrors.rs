@@ -1,4 +1,6 @@
-use crate::handles::{exported_object_handle, resolve_object_handle};
+use crate::handles::{
+    exported_object_handle, exported_object_wrapper, exported_type_handle, resolve_object_handle,
+};
 use crate::{PyObject, with_vm};
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_int};
@@ -28,7 +30,11 @@ macro_rules! define_exception_statics {
             unsafe {
                 $(
                     let obj: PyObjectRef = exc.$zoo.to_owned().into();
-                    $export.write(obj.as_raw().cast_mut());
+                    let exported = exported_type_handle(
+                        obj.as_raw().cast_mut().cast::<crate::object::PyTypeObject>(),
+                    )
+                    .cast::<PyObject>();
+                    $export.write(exported);
                     retained.push(obj);
                 )*
             }
@@ -305,13 +311,11 @@ pub extern "C" fn PyErr_Fetch(
         unsafe {
             if let Some(exc) = exc {
                 *ptype = exported_object_handle(exc.class().as_object().as_raw().cast_mut());
-                *pvalue = exported_object_handle(exc.as_object().as_raw().cast_mut());
-                *ptraceback = exc
-                    .as_object()
-                    .get_attr("__traceback__", vm)
-                    .ok()
-                    .map(|tb| exported_object_handle(tb.as_object().as_raw().cast_mut()))
-                    .unwrap_or(core::ptr::null_mut());
+                *pvalue = exported_object_wrapper(
+                    exc.as_object().as_raw().cast_mut(),
+                    core::mem::size_of::<usize>() * 2,
+                );
+                *ptraceback = core::ptr::null_mut();
             } else {
                 *ptype = core::ptr::null_mut();
                 *pvalue = core::ptr::null_mut();

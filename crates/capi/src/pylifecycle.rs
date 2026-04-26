@@ -10,8 +10,8 @@ pub(crate) static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 pub fn initialize_for_vm(vm: &mut VirtualMachine) {
     unsafe {
-        init_exception_statics(&vm.ctx.exceptions);
         init_exported_builtin_objects(&vm.ctx);
+        init_exception_statics(&vm.ctx.exceptions);
     }
     INITIALIZED.store(true, Ordering::Release);
 }
@@ -29,8 +29,8 @@ pub extern "C" fn Py_Initialize() {
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
     let _ = try_with_current_vm(|vm| unsafe {
-        init_exception_statics(&vm.ctx.exceptions);
         init_exported_builtin_objects(&vm.ctx);
+        init_exception_statics(&vm.ctx.exceptions);
     });
     INITIALIZED.store(true, Ordering::Release);
 }

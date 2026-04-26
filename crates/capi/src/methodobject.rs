@@ -1,7 +1,7 @@
 use crate::PyObject;
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
-use crate::handles::exported_object_handle;
+use crate::handles::{exported_object_handle, exported_object_wrapper, resolve_object_handle};
 use crate::util::owned_from_exported_new_ref;
 use bitflags::bitflags_match;
 use core::ffi::{CStr, c_char, c_int};
@@ -28,6 +28,40 @@ type PyCFunctionFastWithKeywords = unsafe extern "C" fn(
     kwnames: *mut PyObject,
 ) -> *mut PyObject;
 
+fn export_c_self_raw(raw: *mut PyObject) -> *mut PyObject {
+    if raw.is_null() {
+        return raw;
+    }
+    let exported = unsafe { exported_object_handle(raw) };
+    if exported != raw {
+        exported
+    } else if unsafe { resolve_object_handle(raw) } != raw {
+        raw
+    } else {
+        unsafe { exported_object_wrapper(raw, core::mem::size_of::<usize>() * 2) }
+    }
+}
+
+fn export_c_value_raw(raw: *mut PyObject) -> *mut PyObject {
+    if raw.is_null() {
+        return raw;
+    }
+    let exported = unsafe { exported_object_handle(raw) };
+    if exported != raw {
+        return exported;
+    }
+    if unsafe { resolve_object_handle(raw) } != raw {
+        return raw;
+    }
+    let class_name = unsafe { (&*raw).class().name().to_string() };
+    let out = if matches!(class_name.as_str(), "bytes" | "bytearray") {
+        raw
+    } else {
+        unsafe { exported_object_wrapper(raw, core::mem::size_of::<usize>() * 2) }
+    };
+    out
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union PyMethodPointer {
@@ -51,13 +85,14 @@ fn c_function_wrapper(
     mut args: FuncArgs,
     method: PyMethodPointer,
     flags: PyMethodFlags,
+    debug_name: &str,
 ) -> PyResult {
     let slf_ptr = slf
-        .map(|slf| unsafe { exported_object_handle(slf.as_object().as_raw().cast_mut()) })
+        .map(|slf| export_c_self_raw(slf.as_object().as_raw().cast_mut()))
         .unwrap_or_default();
 
     let arg_tuple = vm.ctx.new_tuple(core::mem::take(&mut args.args));
-    let arg_tuple_ptr = arg_tuple.as_object().as_raw().cast_mut();
+    let arg_tuple_ptr = unsafe { exported_object_handle(arg_tuple.as_object().as_raw().cast_mut()) };
     let call_flags = flags & !(PyMethodFlags::METHOD | PyMethodFlags::CLASS | PyMethodFlags::STATIC);
 
     let ret_ptr = bitflags_match!(call_flags, {
@@ -70,7 +105,7 @@ fn c_function_wrapper(
             let arg = arg_tuple
                 .as_slice()
                 .first()
-                .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
+                .map(|slf| export_c_value_raw(slf.as_object().as_raw().cast_mut()))
                 .unwrap_or(core::ptr::null_mut());
             unsafe { Ok(f(slf_ptr, arg)) }
         },
@@ -92,7 +127,7 @@ fn c_function_wrapper(
             let exported_args: Vec<*mut PyObject> = arg_tuple
                 .as_slice()
                 .iter()
-                .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
+                .map(|slf| export_c_value_raw(slf.as_object().as_raw().cast_mut()))
                 .collect();
             unsafe { Ok(f(slf_ptr, exported_args.as_ptr(), exported_args.len() as isize)) }
         },
@@ -101,13 +136,14 @@ fn c_function_wrapper(
             let mut exported_args: Vec<*mut PyObject> = arg_tuple
                 .as_slice()
                 .iter()
-                .map(|obj| unsafe { exported_object_handle(obj.as_object().as_raw().cast_mut()) })
+                .map(|slf| export_c_value_raw(slf.as_object().as_raw().cast_mut()))
                 .collect();
             let mut kwarg_values = Vec::with_capacity(args.kwargs.len());
             let mut kwnames = Vec::with_capacity(args.kwargs.len());
             for (k, v) in args.kwargs {
                 kwnames.push(vm.ctx.new_str(k.to_string()));
-                exported_args.push(unsafe { exported_object_handle(v.as_object().as_raw().cast_mut()) });
+                let ptr = export_c_value_raw(v.as_object().as_raw().cast_mut());
+                exported_args.push(ptr);
                 kwarg_values.push(v);
             }
             let kwnames_tuple = vm.ctx.new_tuple(
@@ -156,10 +192,11 @@ pub(crate) fn build_tp_method(
         raw_flags | PyMethodFlags::METHOD
     };
     let method = ml.ml_meth;
+    let debug_name = name.clone();
     let heap_def = vm.ctx.new_method_def(
         Box::leak(name.clone().into_boxed_str()),
         move |slf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| {
-            c_function_wrapper(vm, Some(&slf), args, method, effective_flags)
+            c_function_wrapper(vm, Some(&slf), args, method, effective_flags, debug_name.as_str())
         },
         effective_flags,
         Some(Box::leak(doc.into_boxed_str())),
@@ -192,7 +229,7 @@ pub extern "C" fn PyCMethod_New(
         let slf = NonNull::new(slf).map(|ptr| unsafe { ptr.as_ref().to_owned() });
         let slf_for_callable = slf.clone();
         let callable = move |args: FuncArgs, vm: &VirtualMachine| {
-            c_function_wrapper(vm, slf_for_callable.as_ref(), args, method, flags)
+            c_function_wrapper(vm, slf_for_callable.as_ref(), args, method, flags, name)
         };
 
         let method = vm.ctx.new_method_def(name, callable, flags, Some(doc));

@@ -71,8 +71,10 @@ pub extern "C" fn PyDict_Next(
 
         if let Some((k, v)) = items.get(index) {
             unsafe {
-                *key = exported_object_handle(k.as_object().as_raw().cast_mut());
-                *value = exported_object_handle(v.as_object().as_raw().cast_mut());
+                let key_ptr = exported_object_handle(k.as_object().as_raw().cast_mut());
+                let value_ptr = exported_object_handle(v.as_object().as_raw().cast_mut());
+                *key = key_ptr;
+                *value = value_ptr;
                 *pos += 1;
             }
             Ok(true)
